@@ -11,3 +11,4 @@ npm run dev
 
 - Frontend: http://localhost:5173
 - API health check: http://localhost:5000/api/health
+# northstar-e-commerce

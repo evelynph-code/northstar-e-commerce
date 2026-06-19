@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Firestore is accessed by the trusted Express backend via Firebase Admin.
+    // Client SDK access remains denied until explicit per-collection rules exist.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

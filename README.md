@@ -56,16 +56,8 @@ During development, the API accepts localhost frontend origins on any port so
 Vite can fall back from `5173` when that port is already occupied. In production,
 only origins listed in `CLIENT_URL` are accepted.
 
-## Product mock data
+## Product data
 
 The storefront loads products from `GET /api/products`. Product documents live
 in the Firestore `products` collection rather than inside the React page.
-
-To load or refresh the development fixture:
-
-```bash
-npm run seed:products --prefix backend
-```
-
-The source fixture is `backend/data/mock-products.json`.
 # northstar-e-commerce

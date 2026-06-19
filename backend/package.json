@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
+    "seed:products": "node scripts/seedProducts.js",
     "start": "node src/server.js"
   },
   "dependencies": {

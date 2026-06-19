@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Heart,
   Search,
   ShoppingBag,
@@ -14,23 +16,7 @@ import {
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 
-const navigation = ['New arrivals', 'Electronics', 'Home', 'Fashion', 'Beauty']
-
-const categoryOptions = [
-  { name: 'Electronics', count: 18 },
-  { name: 'Home', count: 24 },
-  { name: 'Fashion', count: 16 },
-  { name: 'Beauty', count: 12 },
-]
-
-const initialProducts = [
-  { id: 1, name: 'Aura Wireless Headphones', category: 'Electronics', price: 119, originalPrice: 149, rating: 4.8, reviews: 128, sold: 1284, stock: 18, color: 'from-sky-100 to-blue-200' },
-  { id: 2, name: 'Linen Lounge Chair', category: 'Home', price: 279, rating: 4.6, reviews: 84, sold: 736, stock: 4, color: 'from-stone-100 to-slate-200' },
-  { id: 3, name: 'Everyday Carry Tote', category: 'Fashion', price: 69, originalPrice: 89, rating: 4.4, reviews: 57, sold: 2451, stock: 12, color: 'from-cyan-50 to-teal-100' },
-  { id: 4, name: 'Glow Essentials Set', category: 'Beauty', price: 48, originalPrice: 64, rating: 4.9, reviews: 203, sold: 3108, stock: 2, color: 'from-rose-50 to-pink-100' },
-  { id: 5, name: 'Minimal Desk Lamp', category: 'Home', price: 119, rating: 4.2, reviews: 46, sold: 892, stock: 7, color: 'from-indigo-50 to-blue-100' },
-  { id: 6, name: 'Nova Smart Speaker', category: 'Electronics', price: 199, rating: 3.9, reviews: 91, sold: 1162, stock: 0, color: 'from-slate-100 to-indigo-200' },
-]
+const productsPerPage = 12
 
 function formatSold(value) {
   if (value < 1000) return value.toString()
@@ -55,6 +41,7 @@ function FilterPanel({
   maxPrice,
   minRating,
   selectedCategories,
+  categoryOptions,
   onCategoryChange,
   onPriceChange,
   onRatingChange,
@@ -137,9 +124,46 @@ function App() {
   const [maxPrice, setMaxPrice] = useState(300)
   const [minRating, setMinRating] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [inventory, setInventory] = useState(initialProducts)
+  const [inventory, setInventory] = useState([])
+  const [productsLoading, setProductsLoading] = useState(true)
+  const [productsError, setProductsError] = useState('')
   const [cartCount, setCartCount] = useState(0)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const catalogRef = useRef(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadProducts() {
+      try {
+        const response = await fetch('/api/products', { signal: controller.signal })
+        if (!response.ok) throw new Error('Unable to load products.')
+        const body = await response.json()
+        setInventory(body.products)
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          setProductsError(error.message)
+        }
+      } finally {
+        if (!controller.signal.aborted) setProductsLoading(false)
+      }
+    }
+
+    loadProducts()
+    return () => controller.abort()
+  }, [])
+
+  const categoryOptions = useMemo(() => {
+    const counts = inventory.reduce((result, product) => {
+      result[product.category] = (result[product.category] || 0) + 1
+      return result
+    }, {})
+
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((first, second) => first.name.localeCompare(second.name))
+  }, [inventory])
 
   const filteredProducts = useMemo(
     () =>
@@ -151,6 +175,19 @@ function App() {
       ),
     [inventory, maxPrice, minRating, selectedCategories],
   )
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / productsPerPage))
+  const paginatedProducts = filteredProducts.slice(
+    (currentPage - 1) * productsPerPage,
+    currentPage * productsPerPage,
+  )
+
+  const changePage = (page) => {
+    setCurrentPage(page)
+    requestAnimationFrame(() => {
+      catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
 
   const addToCart = (productId) => {
     const product = inventory.find((item) => item.id === productId)
@@ -167,6 +204,7 @@ function App() {
   }
 
   const toggleCategory = (category) => {
+    setCurrentPage(1)
     setSelectedCategories((current) =>
       current.includes(category)
         ? current.filter((item) => item !== category)
@@ -175,6 +213,7 @@ function App() {
   }
 
   const clearFilters = () => {
+    setCurrentPage(1)
     setSelectedCategories([])
     setMaxPrice(300)
     setMinRating(0)
@@ -183,10 +222,17 @@ function App() {
   const filterProps = {
     maxPrice,
     minRating,
+    categoryOptions,
     selectedCategories,
     onCategoryChange: toggleCategory,
-    onPriceChange: setMaxPrice,
-    onRatingChange: setMinRating,
+    onPriceChange: (price) => {
+      setCurrentPage(1)
+      setMaxPrice(price)
+    },
+    onRatingChange: (rating) => {
+      setCurrentPage(1)
+      setMinRating(rating)
+    },
     onClear: clearFilters,
   }
 
@@ -255,7 +301,8 @@ function App() {
           </div>
         </div>
         <nav aria-label="Main navigation" className="mx-auto flex max-w-7xl items-center gap-7 overflow-x-auto px-5 pb-4 text-sm font-medium text-slate-600 sm:px-8">
-          {navigation.map((item) => <a className="whitespace-nowrap transition hover:text-blue-700" href="#" key={item}>{item}</a>)}
+          <a className="whitespace-nowrap transition hover:text-blue-700" href="#">New arrivals</a>
+          {categoryOptions.map(({ name }) => <a className="whitespace-nowrap transition hover:text-blue-700" href="#" key={name}>{name}</a>)}
           <a className="ml-auto whitespace-nowrap font-semibold text-blue-700" href="#">Offers</a>
         </nav>
       </header>
@@ -268,7 +315,7 @@ function App() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-5 py-10 sm:px-8">
+      <section className="mx-auto max-w-7xl scroll-mt-6 px-5 py-10 sm:px-8" ref={catalogRef}>
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-6">
           <div>
             <p className="text-sm text-slate-500">Home / All products</p>
@@ -292,9 +339,23 @@ function App() {
           </aside>
 
           <div>
-            {filteredProducts.length > 0 ? (
+            {productsLoading ? (
+              <div className="grid min-h-80 place-items-center rounded-2xl bg-slate-50">
+                <div className="text-center">
+                  <span className="mx-auto block size-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" />
+                  <p className="mt-4 text-sm font-medium text-slate-500">Loading products…</p>
+                </div>
+              </div>
+            ) : productsError ? (
+              <div className="grid min-h-80 place-items-center rounded-2xl border border-rose-200 bg-rose-50 text-center">
+                <div>
+                  <h3 className="font-semibold text-rose-800">Products could not be loaded</h3>
+                  <p className="mt-1 text-sm text-rose-600">{productsError}</p>
+                </div>
+              </div>
+            ) : filteredProducts.length > 0 ? (
               <div className="grid gap-x-5 gap-y-9 sm:grid-cols-2 xl:grid-cols-3">
-                {filteredProducts.map((product) => (
+                {paginatedProducts.map((product) => (
                   <article className="group flex flex-col" key={product.id}>
                     <div className={`relative aspect-[4/3] overflow-hidden rounded-2xl bg-gradient-to-br ${product.color}`}>
                       <div className="absolute inset-x-[24%] inset-y-[18%] rounded-[2rem] border border-white/80 bg-white/45 shadow-xl backdrop-blur" />
@@ -354,6 +415,43 @@ function App() {
                   <button className="mt-5 text-sm font-semibold text-blue-700" onClick={clearFilters} type="button">Clear all filters</button>
                 </div>
               </div>
+            )}
+            {!productsLoading && !productsError && filteredProducts.length > 0 && totalPages > 1 && (
+              <nav aria-label="Product pages" className="mt-12 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  className="grid size-10 place-items-center rounded-full border border-slate-200 text-slate-600 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
+                  disabled={currentPage === 1}
+                  onClick={() => changePage(currentPage - 1)}
+                  type="button"
+                >
+                  <ChevronLeft size={18} />
+                  <span className="sr-only">Previous page</span>
+                </button>
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                  <button
+                    aria-current={currentPage === page ? 'page' : undefined}
+                    className={`size-10 rounded-full text-sm font-semibold transition ${
+                      currentPage === page
+                        ? 'bg-[#11243e] text-white'
+                        : 'border border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-700'
+                    }`}
+                    key={page}
+                    onClick={() => changePage(page)}
+                    type="button"
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  className="grid size-10 place-items-center rounded-full border border-slate-200 text-slate-600 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
+                  disabled={currentPage === totalPages}
+                  onClick={() => changePage(currentPage + 1)}
+                  type="button"
+                >
+                  <ChevronRight size={18} />
+                  <span className="sr-only">Next page</span>
+                </button>
+              </nav>
             )}
           </div>
         </div>

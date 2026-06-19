@@ -19,7 +19,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { auth } from '../lib/firebase.js'
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const apiUrl = import.meta.env.VITE_API_URL || '/api'
 
 const authMessages = {
   'auth/email-already-in-use': 'An account already exists with this email.',
@@ -79,7 +79,7 @@ function AuthPage({ mode }) {
       }
 
       const token = await credential.user.getIdToken(true)
-      const response = await fetch(`${apiUrl}/api/auth/profile`, {
+      const response = await fetch(`${apiUrl}/auth/profile`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

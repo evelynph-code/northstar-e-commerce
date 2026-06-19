@@ -3,7 +3,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth } from '../lib/firebase.js'
 import { AuthContext } from './auth-context.js'
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001'
+const apiUrl = import.meta.env.VITE_API_URL || '/api'
 
 export function AuthProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null)
@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
 
       try {
         const token = await user.getIdToken()
-        const response = await fetch(`${apiUrl}/api/auth/me`, {
+        const response = await fetch(`${apiUrl}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         })
 

@@ -10,7 +10,29 @@ npm run dev
 ```
 
 - Frontend: http://localhost:5173
-- API health check: http://localhost:5000/api/health
+- API health check: http://localhost:5001/api/health
+
+## Run with Docker
+
+Complete `frontend/.env` and `backend/.env`, then run:
+
+```bash
+npm run docker:up
+```
+
+- Storefront: http://localhost:8080
+- API health check: http://localhost:5001/api/health
+
+Stop and remove the containers:
+
+```bash
+npm run docker:down
+```
+
+The frontend is built with Vite and served by Nginx. Nginx proxies `/api`
+requests to the private Compose backend service. Firebase's public web config
+is compiled into the frontend bundle, while Firebase Admin credentials are
+supplied only to the backend container through `backend/.env`.
 
 ## Firebase authentication setup
 

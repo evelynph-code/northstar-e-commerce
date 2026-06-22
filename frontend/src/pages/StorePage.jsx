@@ -13,7 +13,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 
 const productsPerPage = 12
@@ -120,7 +120,12 @@ function FilterPanel({
 
 function App() {
   const { authLoading, logout, profile, user } = useAuth()
-  const [selectedCategories, setSelectedCategories] = useState([])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const categoryFromUrl = searchParams.get('category')
+  const offersFromUrl = searchParams.get('offers') === 'true'
+  const [selectedCategories, setSelectedCategories] = useState(
+    categoryFromUrl ? [categoryFromUrl] : [],
+  )
   const [maxPrice, setMaxPrice] = useState(300)
   const [minRating, setMinRating] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -130,6 +135,7 @@ function App() {
   const [cartCount, setCartCount] = useState(0)
   const [profileOpen, setProfileOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [offersOnly, setOffersOnly] = useState(offersFromUrl)
   const catalogRef = useRef(null)
 
   useEffect(() => {
@@ -154,6 +160,20 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setCurrentPage(1)
+      setSelectedCategories(categoryFromUrl ? [categoryFromUrl] : [])
+      setOffersOnly(offersFromUrl)
+
+      if (categoryFromUrl || offersFromUrl) {
+        catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [categoryFromUrl, offersFromUrl])
+
   const categoryOptions = useMemo(() => {
     const counts = inventory.reduce((result, product) => {
       result[product.category] = (result[product.category] || 0) + 1
@@ -171,9 +191,10 @@ function App() {
         (product) =>
           (selectedCategories.length === 0 || selectedCategories.includes(product.category)) &&
           product.price <= maxPrice &&
-          product.rating >= minRating,
+          product.rating >= minRating &&
+          (!offersOnly || Boolean(product.originalPrice)),
       ),
-    [inventory, maxPrice, minRating, selectedCategories],
+    [inventory, maxPrice, minRating, offersOnly, selectedCategories],
   )
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / productsPerPage))
@@ -204,12 +225,14 @@ function App() {
   }
 
   const toggleCategory = (category) => {
+    const nextCategories = selectedCategories.includes(category)
+      ? selectedCategories.filter((item) => item !== category)
+      : [...selectedCategories, category]
+
     setCurrentPage(1)
-    setSelectedCategories((current) =>
-      current.includes(category)
-        ? current.filter((item) => item !== category)
-        : [...current, category],
-    )
+    setOffersOnly(false)
+    setSelectedCategories(nextCategories)
+    setSearchParams(nextCategories.length === 1 ? { category: nextCategories[0] } : {})
   }
 
   const clearFilters = () => {
@@ -217,6 +240,35 @@ function App() {
     setSelectedCategories([])
     setMaxPrice(300)
     setMinRating(0)
+    setOffersOnly(false)
+    setSearchParams({})
+  }
+
+  const filterByCategory = (category) => {
+    setCurrentPage(1)
+    setOffersOnly(false)
+    setSelectedCategories([category])
+    setSearchParams({ category })
+    requestAnimationFrame(() => {
+      catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  const showAllProducts = () => {
+    clearFilters()
+    requestAnimationFrame(() => {
+      catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  const showOffers = () => {
+    setCurrentPage(1)
+    setSelectedCategories([])
+    setOffersOnly(true)
+    setSearchParams({ offers: 'true' })
+    requestAnimationFrame(() => {
+      catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const filterProps = {
@@ -301,9 +353,40 @@ function App() {
           </div>
         </div>
         <nav aria-label="Main navigation" className="mx-auto flex max-w-7xl items-center gap-7 overflow-x-auto px-5 pb-4 text-sm font-medium text-slate-600 sm:px-8">
-          <a className="whitespace-nowrap transition hover:text-blue-700" href="#">New arrivals</a>
-          {categoryOptions.map(({ name }) => <a className="whitespace-nowrap transition hover:text-blue-700" href="#" key={name}>{name}</a>)}
-          <a className="ml-auto whitespace-nowrap font-semibold text-blue-700" href="#">Offers</a>
+          <button
+            className={`whitespace-nowrap transition hover:text-blue-700 ${
+              selectedCategories.length === 0 && !offersOnly ? 'font-semibold text-blue-700' : ''
+            }`}
+            onClick={showAllProducts}
+            type="button"
+          >
+            All products
+          </button>
+          {categoryOptions.map(({ name }) => (
+            <button
+              aria-pressed={selectedCategories.length === 1 && selectedCategories[0] === name}
+              className={`whitespace-nowrap transition hover:text-blue-700 ${
+                selectedCategories.length === 1 && selectedCategories[0] === name
+                  ? 'font-semibold text-blue-700'
+                  : ''
+              }`}
+              key={name}
+              onClick={() => filterByCategory(name)}
+              type="button"
+            >
+              {name}
+            </button>
+          ))}
+          <button
+            aria-pressed={offersOnly}
+            className={`ml-auto whitespace-nowrap font-semibold ${
+              offersOnly ? 'text-blue-900 underline decoration-2 underline-offset-4' : 'text-blue-700'
+            }`}
+            onClick={showOffers}
+            type="button"
+          >
+            Offers
+          </button>
         </nav>
       </header>
 

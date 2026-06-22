@@ -144,7 +144,16 @@ function ProductDetailPage() {
 
       <div className="page-container min-w-0 py-5 sm:py-6">
         <nav className="flex min-w-0 items-center gap-2 overflow-hidden text-sm text-slate-500">
-          <Link className="shrink-0 hover:text-blue-700" to="/">Products</Link><span>/</span><span className="shrink-0">{product.category}</span><span>/</span><span className="min-w-0 truncate text-slate-700">{product.name}</span>
+          <Link className="shrink-0 hover:text-blue-700" to="/">Products</Link>
+          <span>/</span>
+          <Link
+            className="shrink-0 hover:text-blue-700"
+            to={`/?category=${encodeURIComponent(product.category)}`}
+          >
+            {product.category}
+          </Link>
+          <span>/</span>
+          <span className="min-w-0 truncate text-slate-700">{product.name}</span>
         </nav>
       </div>
 

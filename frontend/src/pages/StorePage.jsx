@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
+import { useCart } from '../context/useCart.js'
 
 const productsPerPage = 12
 
@@ -120,6 +121,7 @@ function FilterPanel({
 
 function App() {
   const { authLoading, logout, profile, user } = useAuth()
+  const { addItem, itemCount } = useCart()
   const [searchParams, setSearchParams] = useSearchParams()
   const categoryFromUrl = searchParams.get('category')
   const offersFromUrl = searchParams.get('offers') === 'true'
@@ -132,7 +134,6 @@ function App() {
   const [inventory, setInventory] = useState([])
   const [productsLoading, setProductsLoading] = useState(true)
   const [productsError, setProductsError] = useState('')
-  const [cartCount, setCartCount] = useState(0)
   const [profileOpen, setProfileOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [offersOnly, setOffersOnly] = useState(offersFromUrl)
@@ -214,14 +215,7 @@ function App() {
     const product = inventory.find((item) => item.id === productId)
     if (!product || product.stock === 0) return
 
-    setInventory((current) =>
-      current.map((item) =>
-        item.id === productId
-          ? { ...item, stock: item.stock - 1, sold: item.sold + 1 }
-          : item,
-      ),
-    )
-    setCartCount((current) => current + 1)
+    addItem(product)
   }
 
   const toggleCategory = (category) => {
@@ -346,10 +340,10 @@ function App() {
                 </Link>
               )
             )}
-            <button aria-label={`Shopping bag with ${cartCount} items`} className="relative rounded-full p-3 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950">
+            <Link aria-label={`Shopping bag with ${itemCount} items`} className="relative rounded-full p-3 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950" to="/cart">
               <ShoppingBag size={20} />
-              <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{cartCount}</span>
-            </button>
+              <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{itemCount}</span>
+            </Link>
           </div>
         </div>
         <nav aria-label="Main navigation" className="mx-auto flex max-w-7xl items-center gap-7 overflow-x-auto px-5 pb-4 text-sm font-medium text-slate-600 sm:px-8">

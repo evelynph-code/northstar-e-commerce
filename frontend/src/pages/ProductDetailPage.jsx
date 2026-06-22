@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
+import { useCart } from '../context/useCart.js'
 
 const fallbackGallery = [
   { start: '#dbeafe', end: '#93c5fd' },
@@ -57,6 +58,7 @@ function ProductArtwork({ colors, name }) {
 function ProductDetailPage() {
   const { productId } = useParams()
   const { authLoading, profile, user } = useAuth()
+  const { addItem, itemCount } = useCart()
   const [product, setProduct] = useState(null)
   const [customerReviews, setCustomerReviews] = useState([])
   const [loading, setLoading] = useState(true)
@@ -65,7 +67,6 @@ function ProductDetailPage() {
   const [selectedColor, setSelectedColor] = useState('')
   const [selectedSize, setSelectedSize] = useState('')
   const [quantity, setQuantity] = useState(1)
-  const [cartCount, setCartCount] = useState(0)
   const [added, setAdded] = useState(false)
 
   useEffect(() => {
@@ -102,7 +103,11 @@ function ProductDetailPage() {
 
   const addToCart = () => {
     if (!product || product.stock === 0) return
-    setCartCount((count) => count + quantity)
+    addItem(product, {
+      color: selectedColor,
+      size: selectedSize,
+      quantity,
+    })
     setAdded(true)
     window.setTimeout(() => setAdded(false), 1800)
   }
@@ -142,10 +147,10 @@ function ProductDetailPage() {
             ) : (
               <Link aria-label="Sign in" className="rounded-full p-3 text-slate-600 hover:bg-slate-100" to="/login"><UserRound size={20} /></Link>
             ))}
-            <button aria-label={`Shopping bag with ${cartCount} items`} className="relative rounded-full p-3 text-slate-600 hover:bg-slate-100" type="button">
+            <Link aria-label={`Shopping bag with ${itemCount} items`} className="relative rounded-full p-3 text-slate-600 hover:bg-slate-100" to="/cart">
               <ShoppingBag size={20} />
-              <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{cartCount}</span>
-            </button>
+              <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{itemCount}</span>
+            </Link>
           </div>
         </div>
       </header>

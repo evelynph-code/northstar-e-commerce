@@ -39,3 +39,38 @@ button {
     width: calc(100vw - 4rem);
   }
 }
+
+@keyframes cart-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cart-toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.cart-toast {
+  animation: cart-toast-enter 220ms ease-out both;
+}
+
+.cart-toast-progress {
+  animation: cart-toast-progress 3.2s linear both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cart-toast,
+  .cart-toast-progress {
+    animation: none;
+  }
+}

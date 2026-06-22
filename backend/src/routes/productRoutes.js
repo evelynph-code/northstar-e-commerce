@@ -16,4 +16,18 @@ productRouter.get('/', async (_request, response, next) => {
   }
 })
 
+productRouter.get('/:productId', async (request, response, next) => {
+  try {
+    const snapshot = await firestore().collection('products').doc(request.params.productId).get()
+
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Product not found.' })
+    }
+
+    return response.json({ product: { id: snapshot.id, ...snapshot.data() } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 export default productRouter

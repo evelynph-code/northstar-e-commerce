@@ -309,7 +309,7 @@ function App() {
 
       <section className="bg-[#edf4fb]">
         <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8">
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-700">The Northstar edit</p>
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-700">The Northstar Edit</p>
           <h1 className="mt-3 max-w-2xl text-4xl font-semibold tracking-[-0.04em] text-[#11243e] sm:text-5xl">Products made for better everyday living.</h1>
           <p className="mt-4 max-w-xl leading-7 text-slate-600">Explore our thoughtfully selected collection of modern essentials.</p>
         </div>
@@ -358,19 +358,22 @@ function App() {
                 {paginatedProducts.map((product) => (
                   <article className="group flex flex-col" key={product.id}>
                     <div className={`relative aspect-[4/3] overflow-hidden rounded-2xl bg-gradient-to-br ${product.color}`}>
+                      <Link aria-label={`View ${product.name}`} className="absolute inset-0 z-10" to={`/products/${product.id}`} />
                       <div className="absolute inset-x-[24%] inset-y-[18%] rounded-[2rem] border border-white/80 bg-white/45 shadow-xl backdrop-blur" />
                       {product.originalPrice && (
                         <span className="absolute left-4 top-4 rounded-full bg-blue-700 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
                           {Math.round((1 - product.price / product.originalPrice) * 100)}% off
                         </span>
                       )}
-                      <button aria-label={`Add ${product.name} to favorites`} className="absolute right-4 top-4 grid size-10 place-items-center rounded-full bg-white/90 text-slate-600 shadow-sm transition hover:text-blue-700" type="button">
+                      <button aria-label={`Add ${product.name} to favorites`} className="absolute right-4 top-4 z-20 grid size-10 place-items-center rounded-full bg-white/90 text-slate-600 shadow-sm transition hover:text-blue-700" type="button">
                         <Heart size={18} />
                       </button>
                     </div>
                     <div className="flex flex-1 flex-col pt-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">{product.category}</p>
-                      <h3 className="mt-1 font-semibold text-[#11243e]">{product.name}</h3>
+                      <h3 className="mt-1 font-semibold text-[#11243e]">
+                        <Link className="hover:text-blue-700" to={`/products/${product.id}`}>{product.name}</Link>
+                      </h3>
                       <div className="mt-2 flex items-center gap-2">
                         <RatingStars rating={product.rating} />
                         <span className="text-xs text-slate-400">({product.reviews})</span>

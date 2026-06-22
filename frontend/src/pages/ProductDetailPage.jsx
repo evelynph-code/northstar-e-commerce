@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   Check,
+  CircleCheck,
   Heart,
   Minus,
   Plus,
@@ -57,6 +58,7 @@ function ProductDetailPage() {
   const { productId } = useParams()
   const { authLoading, profile, user } = useAuth()
   const [product, setProduct] = useState(null)
+  const [customerReviews, setCustomerReviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedImage, setSelectedImage] = useState(0)
@@ -71,12 +73,17 @@ function ProductDetailPage() {
 
     async function loadProduct() {
       try {
-        const response = await fetch(`/api/products/${productId}`, { signal: controller.signal })
-        if (!response.ok) throw new Error(response.status === 404 ? 'Product not found.' : 'Unable to load product.')
-        const body = await response.json()
-        setProduct(body.product)
-        setSelectedColor(body.product.colors?.[0]?.name || '')
-        setSelectedSize(body.product.sizes?.[0] || '')
+        const [productResponse, reviewsResponse] = await Promise.all([
+          fetch(`/api/products/${productId}`, { signal: controller.signal }),
+          fetch(`/api/products/${productId}/reviews`, { signal: controller.signal }),
+        ])
+        if (!productResponse.ok) throw new Error(productResponse.status === 404 ? 'Product not found.' : 'Unable to load product.')
+        const productBody = await productResponse.json()
+        const reviewsBody = reviewsResponse.ok ? await reviewsResponse.json() : { reviews: [] }
+        setProduct(productBody.product)
+        setCustomerReviews(reviewsBody.reviews)
+        setSelectedColor(productBody.product.colors?.[0]?.name || '')
+        setSelectedSize(productBody.product.sizes?.[0] || '')
       } catch (caughtError) {
         if (caughtError.name !== 'AbortError') setError(caughtError.message)
       } finally {
@@ -116,6 +123,7 @@ function ProductDetailPage() {
   }
 
   const maximumQuantity = Math.min(product.stock, 10)
+  const ratingDistribution = createRatingDistribution(product.rating, product.reviews)
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-white text-slate-950">
@@ -250,8 +258,110 @@ function ProductDetailPage() {
           </div>
         </div>
       </section>
+
+      <section className="border-t border-slate-200 bg-slate-50">
+        <div className="page-container py-16">
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-700">Product information</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-[#11243e] sm:text-4xl">Details & specifications</h2>
+          <p className="mt-4 max-w-3xl leading-7 text-slate-600">
+            Everything you need to know about materials, care, available options, and everyday use.
+          </p>
+
+          <dl className="mt-10 grid overflow-hidden rounded-3xl border border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-3">
+            {(product.specifications || []).map((specification) => (
+              <div className="min-h-32 border-b border-slate-200 p-6 sm:border-r lg:p-7" key={specification.label}>
+                <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{specification.label}</dt>
+                <dd className="mt-3 text-lg font-semibold text-[#11243e]">{specification.value}</dd>
+              </div>
+            ))}
+            <div className="min-h-32 border-b border-slate-200 p-6 sm:border-r lg:p-7">
+              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Available colors</dt>
+              <dd className="mt-3 text-lg font-semibold text-[#11243e]">{product.colors?.map((color) => color.name).join(', ') || 'Standard'}</dd>
+            </div>
+            <div className="min-h-32 border-b border-slate-200 p-6 sm:border-r lg:p-7">
+              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{product.sizes?.length > 0 ? 'Available sizes' : 'Product category'}</dt>
+              <dd className="mt-3 text-lg font-semibold text-[#11243e]">{product.sizes?.length > 0 ? product.sizes.join(', ') : product.category}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-white">
+        <div className="page-container py-16">
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-700">Customer feedback</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-[#11243e] sm:text-4xl">Ratings & reviews</h2>
+
+          <div className="mt-10 grid items-start gap-10 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-16">
+            <aside className="rounded-3xl border border-slate-200 bg-slate-50 p-6 lg:sticky lg:top-6">
+              <p className="text-6xl font-semibold tracking-[-0.06em] text-[#11243e]">{product.rating.toFixed(1)}</p>
+              <div className="mt-3"><RatingStars rating={product.rating} /></div>
+              <p className="mt-2 text-sm text-slate-500">Based on {product.reviews.toLocaleString()} reviews</p>
+              <div className="mt-7 space-y-3 border-t border-slate-200 pt-6">
+                {ratingDistribution.map(({ stars, count, percentage }) => (
+                  <div className="grid grid-cols-[34px_1fr_38px] items-center gap-3 text-sm" key={stars}>
+                    <span className="font-medium text-slate-600">{stars} ★</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-white">
+                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${percentage}%` }} />
+                    </div>
+                    <span className="text-right text-xs text-slate-400">{count}</span>
+                  </div>
+                ))}
+              </div>
+            </aside>
+
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-5">
+                <h3 className="text-xl font-semibold text-[#11243e]">Customer reviews</h3>
+                <span className="text-sm text-slate-500">{customerReviews.length} featured reviews</span>
+              </div>
+              <div className="divide-y divide-slate-200">
+                {customerReviews.map((review) => (
+                  <article className="py-7" key={review.id}>
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <RatingStars rating={review.rating} />
+                        <h4 className="mt-3 text-lg font-semibold text-[#11243e]">{review.title}</h4>
+                      </div>
+                      <time className="text-sm text-slate-400">{review.date}</time>
+                    </div>
+                    <p className="mt-3 max-w-3xl leading-7 text-slate-600">{review.body}</p>
+                    <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">
+                      <span className="font-semibold text-[#11243e]">{review.author}</span>
+                      {review.verified && (
+                        <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                          <CircleCheck size={15} /> Verified purchase
+                        </span>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   )
+}
+
+function createRatingDistribution(rating, totalReviews) {
+  const fiveStarShare = Math.max(0.2, Math.min(0.82, (rating - 2.5) / 3))
+  const shares = [
+    fiveStarShare,
+    Math.max(0.1, 0.28 - Math.abs(rating - 4.2) * 0.08),
+    Math.max(0.04, 0.14 - Math.abs(rating - 3.4) * 0.04),
+    0.05,
+    0.03,
+  ]
+  const totalShare = shares.reduce((sum, share) => sum + share, 0)
+  const counts = shares.map((share) => Math.floor((share / totalShare) * totalReviews))
+  counts[0] += totalReviews - counts.reduce((sum, count) => sum + count, 0)
+
+  return counts.map((count, index) => ({
+    stars: 5 - index,
+    count,
+    percentage: totalReviews > 0 ? Math.round((count / totalReviews) * 100) : 0,
+  }))
 }
 
 function InfoRow({ icon: Icon, title, detail }) {

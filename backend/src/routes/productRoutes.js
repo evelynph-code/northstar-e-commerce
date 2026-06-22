@@ -16,6 +16,27 @@ productRouter.get('/', async (_request, response, next) => {
   }
 })
 
+productRouter.get('/:productId/reviews', async (request, response, next) => {
+  try {
+    const snapshot = await firestore()
+      .collection('products')
+      .doc(request.params.productId)
+      .collection('reviews')
+      .orderBy('createdAt', 'desc')
+      .limit(10)
+      .get()
+
+    return response.json({
+      reviews: snapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      })),
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 productRouter.get('/:productId', async (request, response, next) => {
   try {
     const snapshot = await firestore().collection('products').doc(request.params.productId).get()

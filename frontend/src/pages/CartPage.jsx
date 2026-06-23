@@ -1,5 +1,8 @@
 import {
   ArrowLeft,
+  Check,
+  CircleX,
+  Gift,
   LockKeyhole,
   Minus,
   Plus,
@@ -7,10 +10,16 @@ import {
   Trash2,
   Truck,
 } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/useCart.js'
 
 const fallbackColors = { start: '#dbeafe', end: '#93c5fd' }
+const coupons = {
+  NORTHSTAR10: { type: 'percent', value: 10, label: '10% off your order' },
+  SAVE20: { type: 'fixed', value: 20, label: '$20 off orders over $100', minimum: 100 },
+  FREESHIP: { type: 'shipping', value: 0, label: 'Free delivery' },
+}
 
 function CartArtwork({ colors, name }) {
   const palette = colors?.[0] || fallbackColors
@@ -37,11 +46,48 @@ function CartPage() {
     subtotal,
     updateQuantity,
   } = useCart()
+  const [couponInput, setCouponInput] = useState('')
+  const [appliedCoupon, setAppliedCoupon] = useState(null)
+  const [couponMessage, setCouponMessage] = useState('')
 
   const savings = originalSubtotal - subtotal
-  const shipping = subtotal === 0 || subtotal >= 75 ? 0 : 8.99
-  const estimatedTax = subtotal * 0.08
-  const total = subtotal + shipping + estimatedTax
+  const couponDiscount = appliedCoupon?.type === 'percent'
+    ? subtotal * (appliedCoupon.value / 100)
+    : appliedCoupon?.type === 'fixed'
+      ? appliedCoupon.value
+      : 0
+  const discountedSubtotal = Math.max(0, subtotal - couponDiscount)
+  const shipping = subtotal === 0 || subtotal >= 75 || appliedCoupon?.type === 'shipping' ? 0 : 8.99
+  const estimatedTax = discountedSubtotal * 0.08
+  const total = discountedSubtotal + shipping + estimatedTax
+
+  const applyCoupon = (event) => {
+    event.preventDefault()
+    const code = couponInput.trim().toUpperCase()
+    const coupon = coupons[code]
+
+    if (!coupon) {
+      setAppliedCoupon(null)
+      setCouponMessage('That coupon code is not valid.')
+      return
+    }
+
+    if (coupon.minimum && subtotal < coupon.minimum) {
+      setAppliedCoupon(null)
+      setCouponMessage(`This coupon requires a minimum order of $${coupon.minimum}.`)
+      return
+    }
+
+    setAppliedCoupon({ ...coupon, code })
+    setCouponInput(code)
+    setCouponMessage(coupon.label)
+  }
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null)
+    setCouponInput('')
+    setCouponMessage('')
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -112,7 +158,7 @@ function CartPage() {
                         <button
                           aria-label={`Remove ${item.name}`}
                           className="shrink-0 rounded-full p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-700"
-                          onClick={() => removeItem(item.lineId)}
+                          onClick={() => removeItem(item.lineId).catch(console.error)}
                           type="button"
                         >
                           <Trash2 size={18} />
@@ -125,7 +171,7 @@ function CartPage() {
                             aria-label={`Decrease ${item.name} quantity`}
                             className="grid size-10 place-items-center text-slate-600 disabled:opacity-30"
                             disabled={item.quantity === 1}
-                            onClick={() => updateQuantity(item.lineId, item.quantity - 1)}
+                            onClick={() => updateQuantity(item.lineId, item.quantity - 1).catch(console.error)}
                             type="button"
                           >
                             <Minus size={16} />
@@ -135,7 +181,7 @@ function CartPage() {
                             aria-label={`Increase ${item.name} quantity`}
                             className="grid size-10 place-items-center text-slate-600 disabled:opacity-30"
                             disabled={item.quantity >= item.stock}
-                            onClick={() => updateQuantity(item.lineId, item.quantity + 1)}
+                            onClick={() => updateQuantity(item.lineId, item.quantity + 1).catch(console.error)}
                             type="button"
                           >
                             <Plus size={16} />
@@ -161,6 +207,52 @@ function CartPage() {
 
             <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:sticky md:top-6">
               <h2 className="text-xl font-semibold text-[#11243e]">Order summary</h2>
+
+              <div className="mt-6 border-y border-slate-200 py-5">
+                <label className="flex items-center gap-2 text-sm font-semibold text-[#11243e]" htmlFor="coupon">
+                  <Gift size={17} className="text-blue-700" /> Coupon code
+                </label>
+                <form className="mt-3 flex gap-2" onSubmit={applyCoupon}>
+                  <input
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm uppercase outline-none placeholder:normal-case placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                    disabled={Boolean(appliedCoupon)}
+                    id="coupon"
+                    onChange={(event) => {
+                      setCouponInput(event.target.value)
+                      setCouponMessage('')
+                    }}
+                    placeholder="Enter code"
+                    type="text"
+                    value={couponInput}
+                  />
+                  {appliedCoupon ? (
+                    <button
+                      aria-label="Remove coupon"
+                      className="grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                      onClick={removeCoupon}
+                      type="button"
+                    >
+                      <CircleX size={18} />
+                    </button>
+                  ) : (
+                    <button
+                      className="shrink-0 rounded-xl bg-slate-100 px-4 text-sm font-semibold text-[#11243e] hover:bg-slate-200"
+                      type="submit"
+                    >
+                      Apply
+                    </button>
+                  )}
+                </form>
+                {couponMessage && (
+                  <p className={`mt-2 flex items-center gap-1.5 text-xs font-medium ${
+                    appliedCoupon ? 'text-emerald-700' : 'text-rose-700'
+                  }`}>
+                    {appliedCoupon && <Check size={14} />}
+                    {couponMessage}
+                  </p>
+                )}
+              </div>
+
               <dl className="mt-6 space-y-4 text-sm">
                 <div className="flex justify-between gap-4 text-slate-600">
                   <dt>Subtotal</dt><dd className="font-medium text-[#11243e]">${subtotal.toFixed(2)}</dd>
@@ -168,6 +260,11 @@ function CartPage() {
                 {savings > 0 && (
                   <div className="flex justify-between gap-4 text-emerald-700">
                     <dt>You save</dt><dd className="font-semibold">-${savings.toFixed(2)}</dd>
+                  </div>
+                )}
+                {couponDiscount > 0 && (
+                  <div className="flex justify-between gap-4 text-emerald-700">
+                    <dt>Coupon ({appliedCoupon.code})</dt><dd className="font-semibold">-${couponDiscount.toFixed(2)}</dd>
                   </div>
                 )}
                 <div className="flex justify-between gap-4 text-slate-600">
@@ -194,9 +291,12 @@ function CartPage() {
                 <p className="text-2xl font-semibold text-[#11243e]">${total.toFixed(2)}</p>
               </div>
 
-              <button className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#11243e] px-6 py-4 font-semibold text-white hover:bg-blue-900" type="button">
+              <Link
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#11243e] px-6 py-4 font-semibold text-white hover:bg-blue-900"
+                to={`/checkout${appliedCoupon ? `?coupon=${appliedCoupon.code}` : ''}`}
+              >
                 <LockKeyhole size={18} /> Proceed to checkout
-              </button>
+              </Link>
               <p className="mt-4 text-center text-xs leading-5 text-slate-400">Taxes and shipping are finalized during checkout.</p>
             </aside>
           </div>

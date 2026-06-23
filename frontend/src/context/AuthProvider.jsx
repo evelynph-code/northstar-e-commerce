@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth } from '../lib/firebase.js'
 import { AuthContext } from './auth-context.js'
@@ -9,6 +9,10 @@ export function AuthProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+
+  const updateProfileState = useCallback((updates) => {
+    setProfile((current) => ({ ...current, ...updates }))
+  }, [])
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -51,8 +55,9 @@ export function AuthProvider({ children }) {
       profile,
       user: firebaseUser,
       logout: () => signOut(auth),
+      updateProfileState,
     }),
-    [authLoading, firebaseUser, profile],
+    [authLoading, firebaseUser, profile, updateProfileState],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

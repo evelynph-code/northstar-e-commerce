@@ -15,7 +15,7 @@ import {
   signInWithEmailAndPassword,
   updateProfile,
 } from 'firebase/auth'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { auth } from '../lib/firebase.js'
 
@@ -47,6 +47,7 @@ function Field({ icon: Icon, label, ...inputProps }) {
 function AuthPage({ mode }) {
   const isSignup = mode === 'signup'
   const navigate = useNavigate()
+  const location = useLocation()
   const { authLoading, user } = useAuth()
   const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
   const [showPassword, setShowPassword] = useState(false)
@@ -96,7 +97,7 @@ function AuthPage({ mode }) {
         throw new Error(body.message || 'Unable to synchronize your profile.')
       }
 
-      navigate('/')
+      navigate(location.state?.from || '/')
     } catch (caughtError) {
       setError(authMessages[caughtError.code] || caughtError.message || 'Something went wrong. Please try again.')
     } finally {
@@ -105,7 +106,7 @@ function AuthPage({ mode }) {
   }
 
   if (!authLoading && user) {
-    return <Navigate replace to="/" />
+    return <Navigate replace to={location.state?.from || '/'} />
   }
 
   return (

@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Check,
   CircleCheck,
-  Heart,
   Minus,
   Plus,
   RotateCcw,
@@ -17,6 +16,7 @@ import {
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { useCart } from '../context/useCart.js'
+import { inventorySocket } from '../lib/socket.js'
 
 const fallbackGallery = [
   { start: '#dbeafe', end: '#93c5fd' },
@@ -68,6 +68,7 @@ function ProductDetailPage() {
   const [selectedSize, setSelectedSize] = useState('')
   const [quantity, setQuantity] = useState(1)
   const [added, setAdded] = useState(false)
+  const [liveViewers, setLiveViewers] = useState(1)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -96,20 +97,52 @@ function ProductDetailPage() {
     return () => controller.abort()
   }, [productId])
 
+  useEffect(() => {
+    const handleStockUpdate = ({ productId: updatedProductId, stock }) => {
+      if (updatedProductId !== productId) return
+
+      setProduct((current) => current ? { ...current, stock } : current)
+      setQuantity((current) => Math.max(1, Math.min(current, stock || 1)))
+    }
+
+    inventorySocket.on('product:stock', handleStockUpdate)
+    return () => inventorySocket.off('product:stock', handleStockUpdate)
+  }, [productId])
+
+  useEffect(() => {
+    const watchProduct = () => inventorySocket.emit('product:watch', productId)
+    const handleViewers = ({ productId: updatedProductId, viewers }) => {
+      if (updatedProductId === productId) setLiveViewers(viewers)
+    }
+
+    watchProduct()
+    inventorySocket.on('connect', watchProduct)
+    inventorySocket.on('product:viewers', handleViewers)
+
+    return () => {
+      inventorySocket.off('connect', watchProduct)
+      inventorySocket.off('product:viewers', handleViewers)
+    }
+  }, [productId])
+
   const gallery = useMemo(
     () => product?.galleryColors?.length ? product.galleryColors : fallbackGallery,
     [product],
   )
 
-  const addToCart = () => {
+  const addToCart = async () => {
     if (!product || product.stock === 0) return
-    addItem(product, {
-      color: selectedColor,
-      size: selectedSize,
-      quantity,
-    })
-    setAdded(true)
-    window.setTimeout(() => setAdded(false), 1800)
+    try {
+      await addItem(product, {
+        color: selectedColor,
+        size: selectedSize,
+        quantity,
+      })
+      setAdded(true)
+      window.setTimeout(() => setAdded(false), 1800)
+    } catch (error) {
+      console.error(error)
+    }
   }
 
   if (loading) {
@@ -140,10 +173,10 @@ function ProductDetailPage() {
           <Link className="shrink-0 text-xl font-bold tracking-[-0.06em] text-[#11243e] sm:text-2xl" to="/">NORTHSTAR</Link>
           <div className="ml-auto flex min-w-0 items-center gap-2">
             {!authLoading && (user ? (
-              <div className="hidden text-right sm:block">
+              <Link className="hidden text-right hover:opacity-75 sm:block" to="/account">
                 <p className="text-sm font-semibold text-[#11243e]">{profile?.displayName || 'My account'}</p>
                 <p className="max-w-44 truncate text-xs text-slate-500">{profile?.email}</p>
-              </div>
+              </Link>
             ) : (
               <Link aria-label="Sign in" className="rounded-full p-3 text-slate-600 hover:bg-slate-100" to="/login"><UserRound size={20} /></Link>
             ))}
@@ -198,6 +231,11 @@ function ProductDetailPage() {
             <span className="font-semibold text-slate-700">{product.rating}</span>
             <span className="text-sm text-slate-400">({product.reviews} reviews)</span>
             <span className="text-sm text-slate-500">{product.sold.toLocaleString()} sold</span>
+            {liveViewers > 1 && (
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                {liveViewers - 1} other {liveViewers - 1 === 1 ? 'shopper is' : 'shoppers are'} viewing this
+              </span>
+            )}
           </div>
           <div className="mt-7 flex flex-wrap items-baseline gap-3">
             <span className="text-3xl font-semibold text-[#11243e]">${product.price.toFixed(2)}</span>
@@ -248,12 +286,11 @@ function ProductDetailPage() {
             </div>
           </div>
 
-          <div className="mt-8 flex min-w-0 gap-3">
-            <button className="flex flex-1 items-center justify-center gap-2 rounded-full bg-[#11243e] px-6 py-4 font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500" disabled={product.stock === 0} onClick={addToCart} type="button">
+          <div className="mt-8">
+            <button className="flex w-full items-center justify-center gap-2 rounded-full bg-[#11243e] px-6 py-4 font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500" disabled={product.stock === 0} onClick={addToCart} type="button">
               {added ? <Check size={19} /> : <ShoppingCart size={19} />}
               {product.stock === 0 ? 'Out of stock' : added ? `Added ${quantity} to cart` : 'Add to cart'}
             </button>
-            <button aria-label="Add to favorites" className="grid size-14 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-600 hover:text-blue-700" type="button"><Heart size={20} /></button>
           </div>
 
           <div className="mt-8 divide-y divide-slate-200 rounded-2xl border border-slate-200 px-5">

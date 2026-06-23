@@ -71,4 +71,68 @@ authRouter.get('/me', requireAuth, async (request, response, next) => {
   }
 })
 
+authRouter.patch('/me', requireAuth, async (request, response, next) => {
+  try {
+    const allowedFields = [
+      'displayName',
+      'phone',
+      'address',
+      'city',
+      'postalCode',
+      'country',
+      'savedCards',
+    ]
+    const updates = Object.fromEntries(
+      allowedFields
+        .filter((field) =>
+          field === 'savedCards'
+            ? Array.isArray(request.body.savedCards)
+            : typeof request.body[field] === 'string',
+        )
+        .map((field) => [
+          field,
+          field === 'savedCards'
+            ? request.body.savedCards.slice(0, 5).map((card) => ({
+                id: String(card.id || ''),
+                nickname: String(card.nickname || '').trim(),
+                cardholder: String(card.cardholder || '').trim(),
+                brand: String(card.brand || '').trim(),
+                last4: String(card.last4 || '').replace(/\D/g, '').slice(-4),
+                expiry: String(card.expiry || '').trim(),
+              }))
+            : request.body[field].trim(),
+        ]),
+    )
+
+    if (!updates.displayName) {
+      return response.status(400).json({ message: 'Display name is required.' })
+    }
+
+    await Promise.all([
+      firestore().collection('users').doc(request.user.uid).set(
+        {
+          ...updates,
+          uid: request.user.uid,
+          email: request.user.email,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      ),
+      adminAuth().updateUser(request.user.uid, {
+        displayName: updates.displayName,
+      }),
+    ])
+
+    return response.json({
+      user: {
+        ...updates,
+        uid: request.user.uid,
+        email: request.user.email,
+      },
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 export default authRouter

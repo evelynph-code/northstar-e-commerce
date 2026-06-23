@@ -1,6 +1,7 @@
 import cors from 'cors'
 import express from 'express'
 import authRouter from './routes/authRoutes.js'
+import orderRouter from './routes/orderRoutes.js'
 import productRouter from './routes/productRoutes.js'
 
 const app = express()
@@ -35,6 +36,7 @@ app.get('/api/health', (_request, response) => {
 })
 
 app.use('/api/auth', authRouter)
+app.use('/api/orders', orderRouter)
 app.use('/api/products', productRouter)
 
 app.use((_request, response) => {

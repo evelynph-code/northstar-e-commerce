@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Heart,
   Search,
   ShoppingBag,
   ShoppingCart,
@@ -16,6 +15,7 @@ import {
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { useCart } from '../context/useCart.js'
+import { inventorySocket } from '../lib/socket.js'
 
 const productsPerPage = 12
 
@@ -125,6 +125,7 @@ function App() {
   const [searchParams, setSearchParams] = useSearchParams()
   const categoryFromUrl = searchParams.get('category')
   const offersFromUrl = searchParams.get('offers') === 'true'
+  const queryFromUrl = searchParams.get('q') || ''
   const [selectedCategories, setSelectedCategories] = useState(
     categoryFromUrl ? [categoryFromUrl] : [],
   )
@@ -137,6 +138,7 @@ function App() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [offersOnly, setOffersOnly] = useState(offersFromUrl)
+  const [searchQuery, setSearchQuery] = useState(queryFromUrl)
   const catalogRef = useRef(null)
 
   useEffect(() => {
@@ -162,18 +164,32 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const handleStockUpdate = ({ productId, stock }) => {
+      setInventory((current) =>
+        current.map((product) =>
+          product.id === productId ? { ...product, stock } : product,
+        ),
+      )
+    }
+
+    inventorySocket.on('product:stock', handleStockUpdate)
+    return () => inventorySocket.off('product:stock', handleStockUpdate)
+  }, [])
+
+  useEffect(() => {
     const frame = requestAnimationFrame(() => {
       setCurrentPage(1)
       setSelectedCategories(categoryFromUrl ? [categoryFromUrl] : [])
       setOffersOnly(offersFromUrl)
+      setSearchQuery(queryFromUrl)
 
-      if (categoryFromUrl || offersFromUrl) {
+      if (categoryFromUrl || offersFromUrl || queryFromUrl) {
         catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     })
 
     return () => cancelAnimationFrame(frame)
-  }, [categoryFromUrl, offersFromUrl])
+  }, [categoryFromUrl, offersFromUrl, queryFromUrl])
 
   const categoryOptions = useMemo(() => {
     const counts = inventory.reduce((result, product) => {
@@ -187,15 +203,28 @@ function App() {
   }, [inventory])
 
   const filteredProducts = useMemo(
-    () =>
-      inventory.filter(
-        (product) =>
+    () => {
+      const normalizedQuery = searchQuery.trim().toLowerCase()
+
+      return inventory.filter(
+        (product) => {
+          const matchesKeyword =
+            normalizedQuery.length === 0 ||
+            [product.name, product.category, product.description]
+              .filter(Boolean)
+              .some((value) => value.toLowerCase().includes(normalizedQuery))
+
+          return (
           (selectedCategories.length === 0 || selectedCategories.includes(product.category)) &&
           product.price <= maxPrice &&
           product.rating >= minRating &&
-          (!offersOnly || Boolean(product.originalPrice)),
-      ),
-    [inventory, maxPrice, minRating, offersOnly, selectedCategories],
+          (!offersOnly || Boolean(product.originalPrice)) &&
+          matchesKeyword
+          )
+        },
+      )
+    },
+    [inventory, maxPrice, minRating, offersOnly, searchQuery, selectedCategories],
   )
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / productsPerPage))
@@ -211,11 +240,15 @@ function App() {
     })
   }
 
-  const addToCart = (productId) => {
+  const addToCart = async (productId) => {
     const product = inventory.find((item) => item.id === productId)
     if (!product || product.stock === 0) return
 
-    addItem(product)
+    try {
+      await addItem(product)
+    } catch (error) {
+      console.error(error)
+    }
   }
 
   const toggleCategory = (category) => {
@@ -235,6 +268,25 @@ function App() {
     setMaxPrice(300)
     setMinRating(0)
     setOffersOnly(false)
+    setSearchQuery('')
+    setSearchParams({})
+  }
+
+  const submitSearch = (event) => {
+    event.preventDefault()
+    const query = searchQuery.trim()
+    setCurrentPage(1)
+    setSelectedCategories([])
+    setOffersOnly(false)
+    setSearchParams(query ? { q: query } : {})
+    requestAnimationFrame(() => {
+      catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  const clearSearch = () => {
+    setCurrentPage(1)
+    setSearchQuery('')
     setSearchParams({})
   }
 
@@ -291,11 +343,35 @@ function App() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center gap-5 px-5 py-5 sm:px-8">
           <a className="shrink-0 text-2xl font-bold tracking-[-0.06em] text-[#11243e]" href="/">NORTHSTAR</a>
-          <label className="relative mx-auto hidden w-full max-w-xl md:block">
-            <span className="sr-only">Search products</span>
-            <input className="w-full rounded-full border border-slate-200 bg-slate-50 py-3 pl-5 pr-12 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" placeholder="Search products and categories" type="search" />
-            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
-          </label>
+          <form className="relative mx-auto hidden w-full max-w-xl md:block" onSubmit={submitSearch}>
+            <label>
+              <span className="sr-only">Search products</span>
+              <input
+                className="w-full rounded-full border border-slate-200 bg-slate-50 py-3 pl-5 pr-20 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search products and categories"
+                type="search"
+                value={searchQuery}
+              />
+            </label>
+            {searchQuery && (
+              <button
+                aria-label="Clear search"
+                className="absolute right-11 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                onClick={clearSearch}
+                type="button"
+              >
+                <X size={16} />
+              </button>
+            )}
+            <button
+              aria-label="Search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-500 hover:text-blue-700"
+              type="submit"
+            >
+              <Search size={20} />
+            </button>
+          </form>
           <div className="ml-auto flex items-center gap-1">
             {!authLoading && user ? (
               <div className="relative">
@@ -323,6 +399,20 @@ function App() {
                       <p className="truncate text-sm font-semibold text-[#11243e]">{profile?.displayName || 'My account'}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">{profile?.email}</p>
                     </div>
+                    <Link
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
+                      onClick={() => setProfileOpen(false)}
+                      to="/account"
+                    >
+                      <UserRound size={17} /> Account information
+                    </Link>
+                    <Link
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
+                      onClick={() => setProfileOpen(false)}
+                      to="/account?section=orders"
+                    >
+                      <ShoppingBag size={17} /> My orders
+                    </Link>
                     <button
                       className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-rose-700"
                       onClick={logout}
@@ -397,7 +487,8 @@ function App() {
           <div>
             <p className="text-sm text-slate-500">Home / All products</p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#11243e]">
-              All products <span className="text-base font-normal text-slate-400">({filteredProducts.length})</span>
+              {queryFromUrl ? `Results for “${queryFromUrl}”` : 'All products'}{' '}
+              <span className="text-base font-normal text-slate-400">({filteredProducts.length})</span>
             </h2>
           </div>
           <div className="flex items-center gap-3">
@@ -442,9 +533,6 @@ function App() {
                           {Math.round((1 - product.price / product.originalPrice) * 100)}% off
                         </span>
                       )}
-                      <button aria-label={`Add ${product.name} to favorites`} className="absolute right-4 top-4 z-20 grid size-10 place-items-center rounded-full bg-white/90 text-slate-600 shadow-sm transition hover:text-blue-700" type="button">
-                        <Heart size={18} />
-                      </button>
                     </div>
                     <div className="flex flex-1 flex-col pt-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">{product.category}</p>

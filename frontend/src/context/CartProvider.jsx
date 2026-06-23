@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, ShoppingBag, X } from 'lucide-react'
 import { CartContext } from './cart-context.js'
+import { inventorySocket } from '../lib/socket.js'
 
-const storageKey = 'northstar-cart'
+// Versioned because inventory reservations were introduced after the original
+// client-only cart. Old line items must not be released into live stock.
+const storageKey = 'northstar-cart-v3'
+const cartIdKey = 'northstar-cart-id-v3'
 
 function getInitialCart() {
   try {
@@ -16,8 +20,18 @@ function getLineId(productId, color, size) {
   return [productId, color || 'default', size || 'default'].join(':')
 }
 
+function getCartId() {
+  const existing = localStorage.getItem(cartIdKey)
+  if (existing) return existing
+
+  const id = crypto.randomUUID()
+  localStorage.setItem(cartIdKey, id)
+  return id
+}
+
 export function CartProvider({ children }) {
   const [items, setItems] = useState(getInitialCart)
+  const [cartId, setCartId] = useState(getCartId)
   const [notification, setNotification] = useState(null)
   const notificationId = useRef(0)
   const notificationTimer = useRef(null)
@@ -33,19 +47,63 @@ export function CartProvider({ children }) {
     [],
   )
 
-  const addItem = (product, options = {}) => {
+  useEffect(() => {
+    const handleStockUpdate = ({ productId, stock }) => {
+      setItems((current) =>
+        current.map((item) =>
+          item.productId === productId
+            ? { ...item, stock: stock + item.quantity }
+            : item,
+        ),
+      )
+    }
+
+    inventorySocket.on('product:stock', handleStockUpdate)
+    return () => inventorySocket.off('product:stock', handleStockUpdate)
+  }, [])
+
+  const adjustInventory = async (productId, delta) => {
+    const response = await fetch(`/api/products/${productId}/inventory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cartId, delta }),
+    })
+    const body = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      throw new Error(body.message || 'Unable to update inventory.')
+    }
+
+    return body
+  }
+
+  const addItem = async (product, options = {}) => {
     const color = options.color || product.colors?.[0]?.name || ''
     const size = options.size || product.sizes?.[0] || ''
     const quantity = Math.max(1, Number(options.quantity) || 1)
     const lineId = getLineId(product.id, color, size)
+    const requestedQuantity = Math.min(
+      quantity,
+      Math.max(0, product.stock),
+    )
+
+    if (requestedQuantity === 0) {
+      throw new Error('No more stock is available for this item.')
+    }
+
+    const inventory = await adjustInventory(product.id, requestedQuantity)
 
     setItems((current) => {
-      const existing = current.find((item) => item.lineId === lineId)
+      const currentItem = current.find((item) => item.lineId === lineId)
 
-      if (existing) {
+      if (currentItem) {
         return current.map((item) =>
           item.lineId === lineId
-            ? { ...item, quantity: Math.min(item.quantity + quantity, product.stock) }
+            ? {
+                ...item,
+                quantity: item.quantity + requestedQuantity,
+                stock: inventory.stock + item.quantity + requestedQuantity,
+              }
             : item,
         )
       }
@@ -59,11 +117,11 @@ export function CartProvider({ children }) {
           category: product.category,
           price: product.price,
           originalPrice: product.originalPrice || null,
-          stock: product.stock,
+          stock: inventory.stock + requestedQuantity,
           color,
           size,
           galleryColors: product.galleryColors || [],
-          quantity: Math.min(quantity, product.stock),
+          quantity: requestedQuantity,
         },
       ]
     })
@@ -73,45 +131,63 @@ export function CartProvider({ children }) {
     setNotification({
       id: notificationId.current,
       name: product.name,
-      quantity: Math.min(quantity, product.stock),
+      quantity: requestedQuantity,
     })
     notificationTimer.current = window.setTimeout(() => {
       setNotification(null)
     }, 3200)
   }
 
-  const updateQuantity = (lineId, quantity) => {
+  const updateQuantity = async (lineId, quantity) => {
+    const item = items.find((candidate) => candidate.lineId === lineId)
+    if (!item) return
+
+    const nextQuantity = Math.max(1, Math.min(quantity, item.stock))
+    const delta = nextQuantity - item.quantity
+    if (delta === 0) return
+
+    const inventory = await adjustInventory(item.productId, delta)
     setItems((current) =>
-      current.map((item) =>
-        item.lineId === lineId
-          ? { ...item, quantity: Math.max(1, Math.min(quantity, item.stock)) }
-          : item,
+      current.map((candidate) =>
+        candidate.lineId === lineId
+          ? { ...candidate, quantity: nextQuantity, stock: inventory.stock + nextQuantity }
+          : candidate,
       ),
     )
   }
 
-  const removeItem = (lineId) => {
+  const removeItem = async (lineId) => {
+    const item = items.find((candidate) => candidate.lineId === lineId)
+    if (!item) return
+
+    await adjustInventory(item.productId, -item.quantity)
     setItems((current) => current.filter((item) => item.lineId !== lineId))
   }
 
-  const value = useMemo(() => {
-    const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
-    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
-    const originalSubtotal = items.reduce(
-      (sum, item) => sum + (item.originalPrice || item.price) * item.quantity,
-      0,
-    )
+  const completeOrder = () => {
+    setItems([])
+    const nextCartId = crypto.randomUUID()
+    localStorage.setItem(cartIdKey, nextCartId)
+    setCartId(nextCartId)
+  }
 
-    return {
-      addItem,
-      itemCount,
-      items,
-      originalSubtotal,
-      removeItem,
-      subtotal,
-      updateQuantity,
-    }
-  }, [items])
+  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
+  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const originalSubtotal = items.reduce(
+    (sum, item) => sum + (item.originalPrice || item.price) * item.quantity,
+    0,
+  )
+  const value = {
+    addItem,
+    cartId,
+    completeOrder,
+    itemCount,
+    items,
+    originalSubtotal,
+    removeItem,
+    subtotal,
+    updateQuantity,
+  }
 
   return (
     <CartContext.Provider value={value}>

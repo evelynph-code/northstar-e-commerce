@@ -383,11 +383,11 @@ function App() {
                   type="button"
                 >
                   <span className="grid size-9 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">
-                    {(profile?.displayName || profile?.email || 'U').charAt(0).toUpperCase()}
+                    {(profile?.userName || profile?.displayName || profile?.email || 'U').charAt(0).toUpperCase()}
                   </span>
                   <span className="hidden max-w-32 sm:block">
                     <span className="block truncate text-sm font-semibold text-[#11243e]">
-                      {profile?.displayName || 'My account'}
+                      {profile?.userName || profile?.displayName || 'My account'}
                     </span>
                     <span className="block truncate text-xs text-slate-500">{profile?.email}</span>
                   </span>
@@ -396,7 +396,7 @@ function App() {
                 {profileOpen && (
                   <div className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
                     <div className="border-b border-slate-100 px-3 py-3 sm:hidden">
-                      <p className="truncate text-sm font-semibold text-[#11243e]">{profile?.displayName || 'My account'}</p>
+                      <p className="truncate text-sm font-semibold text-[#11243e]">{profile?.userName || profile?.displayName || 'My account'}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">{profile?.email}</p>
                     </div>
                     <Link

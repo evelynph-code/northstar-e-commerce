@@ -174,7 +174,7 @@ function ProductDetailPage() {
           <div className="ml-auto flex min-w-0 items-center gap-2">
             {!authLoading && (user ? (
               <Link className="hidden text-right hover:opacity-75 sm:block" to="/account">
-                <p className="text-sm font-semibold text-[#11243e]">{profile?.displayName || 'My account'}</p>
+                <p className="text-sm font-semibold text-[#11243e]">{profile?.userName || profile?.displayName || 'My account'}</p>
                 <p className="max-w-44 truncate text-xs text-slate-500">{profile?.email}</p>
               </Link>
             ) : (

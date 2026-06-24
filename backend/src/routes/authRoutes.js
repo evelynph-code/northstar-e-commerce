@@ -17,6 +17,7 @@ authRouter.post('/profile', requireAuth, async (request, response, next) => {
       uid: request.user.uid,
       email: request.user.email,
       displayName,
+      userName: request.body.userName?.trim() || '',
       updatedAt: FieldValue.serverTimestamp(),
     }
 
@@ -36,6 +37,7 @@ authRouter.post('/profile', requireAuth, async (request, response, next) => {
         uid: profile.uid,
         email: profile.email,
         displayName: profile.displayName,
+        userName: profile.userName,
       },
     })
   } catch (error) {
@@ -75,6 +77,7 @@ authRouter.patch('/me', requireAuth, async (request, response, next) => {
   try {
     const allowedFields = [
       'displayName',
+      'userName',
       'phone',
       'address',
       'city',

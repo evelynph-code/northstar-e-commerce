@@ -34,6 +34,7 @@ function AccountPage() {
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [form, setForm] = useState({
     displayName: '',
+    userName: '',
     phone: '',
     address: '',
     city: '',
@@ -58,6 +59,7 @@ function AccountPage() {
     const frame = requestAnimationFrame(() => {
       setForm({
         displayName: profile.displayName || '',
+        userName: profile.userName || '',
         phone: profile.phone || '',
         address: profile.address || '',
         city: profile.city || '',
@@ -208,20 +210,25 @@ function AccountPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="page-container flex items-center py-5">
           <Link className="text-xl font-bold tracking-[-0.06em] text-[#11243e] sm:text-2xl" to="/">NORTHSTAR</Link>
-          <Link className="ml-auto inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-700" to="/cart">
+          <div className="ml-auto flex items-center gap-2">
+            <Link className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-blue-700" to="/">
+              <House size={18} /> <span className="hidden sm:inline">Home</span>
+            </Link>
+            <Link className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-blue-700" to="/cart">
             <ShoppingBag size={18} /> Cart
-          </Link>
+            </Link>
+          </div>
         </div>
       </header>
 
       <div className="page-container py-10 sm:py-14">
         <div className="flex items-center gap-4">
           <span className="grid size-14 place-items-center rounded-full bg-blue-100 text-xl font-bold text-blue-800">
-            {(profile?.displayName || profile?.email || 'U').charAt(0).toUpperCase()}
+            {(profile?.userName || profile?.displayName || profile?.email || 'U').charAt(0).toUpperCase()}
           </span>
           <div>
             <p className="text-sm font-semibold text-blue-700">My account</p>
-            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#11243e]">{profile?.displayName || 'Your profile'}</h1>
+            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#11243e]">{profile?.userName || profile?.displayName || 'Your profile'}</h1>
             <p className="text-sm text-slate-500">{profile?.email}</p>
           </div>
         </div>
@@ -269,9 +276,15 @@ function AccountPage() {
               <form className="mt-7" onSubmit={saveProfile}>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <Field label="Full name" name="displayName" onChange={updateField} value={form.displayName} />
+                  <Field
+                    label="Preferred name"
+                    name="userName"
+                    onChange={updateField}
+                    required={false}
+                    value={form.userName}
+                  />
                   <Field disabled label="Email" name="email" value={profile?.email || ''} />
                   <Field label="Phone" name="phone" onChange={updateField} value={form.phone} />
-                  <div className="flex items-end"><p className="rounded-xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-500">Your email is managed through Firebase Authentication.</p></div>
                   <div className="sm:col-span-2 mt-2 flex items-center gap-3 rounded-2xl bg-blue-50 p-4 text-sm text-blue-800"><House size={19} /><span>Save your address for future orders.</span></div>
                   <div className="sm:col-span-2"><Field label="Street address" name="address" onChange={updateField} value={form.address} /></div>
                   <Field label="City / Province" name="city" onChange={updateField} value={form.city} />

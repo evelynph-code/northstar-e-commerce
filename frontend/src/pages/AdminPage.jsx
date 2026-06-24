@@ -7,6 +7,8 @@ import {
   PackageCheck,
   Phone,
   RefreshCw,
+  Search,
+  X,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
@@ -25,15 +27,23 @@ function AdminPage() {
   const [statuses, setStatuses] = useState([])
   const [loading, setLoading] = useState(true)
   const [savingOrderId, setSavingOrderId] = useState('')
+  const [orderSearch, setOrderSearch] = useState('')
   const [error, setError] = useState('')
+
+  const filteredOrders = useMemo(() => {
+    const query = orderSearch.trim().toLowerCase()
+    if (!query) return orders
+
+    return orders.filter((order) => order.id.toLowerCase().includes(query))
+  }, [orderSearch, orders])
 
   const orderCounts = useMemo(
     () =>
       statuses.map((status) => ({
         status,
-        count: orders.filter((order) => order.status === status).length,
+        count: filteredOrders.filter((order) => order.status === status).length,
       })),
-    [orders, statuses],
+    [filteredOrders, statuses],
   )
 
   useEffect(() => {
@@ -120,9 +130,31 @@ function AdminPage() {
             <p className="mt-2 text-sm text-slate-500">Review orders and update fulfillment status.</p>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
-            <ClipboardList size={17} /> {orders.length} orders
+            <ClipboardList size={17} /> {filteredOrders.length} orders
           </span>
         </div>
+
+        <label className="relative mt-8 block max-w-xl">
+          <span className="sr-only">Search orders by order number</span>
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            className="w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-12 text-sm font-medium text-[#11243e] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+            onChange={(event) => setOrderSearch(event.target.value)}
+            placeholder="Search by order number"
+            type="search"
+            value={orderSearch}
+          />
+          {orderSearch && (
+            <button
+              aria-label="Clear order search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              onClick={() => setOrderSearch('')}
+              type="button"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </label>
 
         {orderCounts.length > 0 && (
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -149,9 +181,17 @@ function AdminPage() {
               <p className="mt-1 text-sm text-slate-500">New orders will appear here.</p>
             </div>
           </div>
+        ) : filteredOrders.length === 0 ? (
+          <div className="mt-10 grid min-h-80 place-items-center rounded-3xl border border-dashed border-slate-300 bg-white text-center">
+            <div>
+              <Search className="mx-auto text-slate-400" size={34} />
+              <h2 className="mt-4 font-semibold text-[#11243e]">No matching orders</h2>
+              <p className="mt-1 text-sm text-slate-500">Try a different order number.</p>
+            </div>
+          </div>
         ) : (
           <div className="mt-8 grid gap-5">
-            {orders.map((order) => (
+            {filteredOrders.map((order) => (
               <OrderBoardCard
                 key={order.id}
                 onStatusChange={updateStatus}

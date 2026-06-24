@@ -18,11 +18,26 @@ const coupons = {
   FREESHIP: { type: 'shipping' },
 }
 
+function formatCardNumber(value) {
+  return value.replace(/\D/g, '').slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
+}
+
+function formatExpiry(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 4)
+  if (digits.length <= 2) return digits
+  return `${digits.slice(0, 2)} / ${digits.slice(2)}`
+}
+
 function CheckoutPage() {
   const { authLoading, profile, user } = useAuth()
   const { cartId, completeOrder, items, subtotal } = useCart()
   const [searchParams] = useSearchParams()
   const [paymentMethod, setPaymentMethod] = useState('card')
+  const [cardDetails, setCardDetails] = useState({
+    cardNumber: '',
+    expiry: '',
+    cvc: '',
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [completedOrder, setCompletedOrder] = useState(null)
@@ -89,6 +104,18 @@ function CheckoutPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const updateCardDetails = (event) => {
+    const { name, value } = event.target
+    const nextValue =
+      name === 'cardNumber'
+        ? formatCardNumber(value)
+        : name === 'expiry'
+          ? formatExpiry(value)
+          : value.replace(/\D/g, '').slice(0, 4)
+
+    setCardDetails((current) => ({ ...current, [name]: nextValue }))
   }
 
   if (authLoading) {
@@ -160,9 +187,9 @@ function CheckoutPage() {
               <div className="mt-6 rounded-2xl bg-slate-50 p-5">
                 <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Placeholder card form — no payment is processed</p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="sm:col-span-2"><Field label="Card number" name="cardNumber" placeholder="4242 4242 4242 4242" /></div>
-                  <Field label="Expiry" name="expiry" placeholder="MM / YY" />
-                  <Field label="Security code" name="cvc" placeholder="CVC" />
+                  <div className="sm:col-span-2"><Field inputMode="numeric" label="Card number" name="cardNumber" onChange={updateCardDetails} placeholder="**** **** **** ****" value={cardDetails.cardNumber} /></div>
+                  <Field inputMode="numeric" label="Expiry" name="expiry" onChange={updateCardDetails} placeholder="MM / YY" value={cardDetails.expiry} />
+                  <Field inputMode="numeric" label="Security code" name="cvc" onChange={updateCardDetails} placeholder="CVC" value={cardDetails.cvc} />
                 </div>
               </div>
             )}

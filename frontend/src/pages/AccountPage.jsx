@@ -37,6 +37,16 @@ function hasCreatedSellerShop(userId) {
   }
 }
 
+function formatCardNumber(value) {
+  return value.replace(/\D/g, '').slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
+}
+
+function formatExpiry(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 4)
+  if (digits.length <= 2) return digits
+  return `${digits.slice(0, 2)} / ${digits.slice(2)}`
+}
+
 function AccountPage() {
   const { authLoading, logout, profile, updateProfileState, user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -113,6 +123,18 @@ function AccountPage() {
 
   const updateField = (event) => {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }))
+  }
+
+  const updateCardField = (event) => {
+    const { name, value } = event.target
+    const nextValue =
+      name === 'number'
+        ? formatCardNumber(value)
+        : name === 'expiry'
+          ? formatExpiry(value)
+          : value
+
+    setCardForm((current) => ({ ...current, [name]: nextValue }))
   }
 
   const saveProfile = async (event) => {
@@ -377,11 +399,11 @@ function AccountPage() {
                 <form className="mt-8 border-t border-slate-200 pt-7" onSubmit={addCard}>
                   <h3 className="font-semibold text-[#11243e]">Add a card</h3>
                   <div className="mt-5 grid gap-5 sm:grid-cols-2">
-                    <Field label="Card nickname" onChange={(event) => setCardForm((current) => ({ ...current, nickname: event.target.value }))} placeholder="Personal card" value={cardForm.nickname} />
-                    <Field label="Cardholder name" onChange={(event) => setCardForm((current) => ({ ...current, cardholder: event.target.value }))} value={cardForm.cardholder} />
+                    <Field label="Card nickname" name="nickname" onChange={updateCardField} placeholder="Personal card" value={cardForm.nickname} />
+                    <Field label="Cardholder name" name="cardholder" onChange={updateCardField} value={cardForm.cardholder} />
                     <label className="block"><span className="mb-2 block text-sm font-semibold text-slate-700">Type</span><select className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none" onChange={(event) => setCardForm((current) => ({ ...current, brand: event.target.value }))} value={cardForm.brand}><option>Visa</option><option>Mastercard</option><option>American Express</option><option>Other</option></select></label>
-                    <Field label="Expiry" onChange={(event) => setCardForm((current) => ({ ...current, expiry: event.target.value }))} placeholder="MM / YY" value={cardForm.expiry} />
-                    <div className="sm:col-span-2"><Field label="Mock card number" onChange={(event) => setCardForm((current) => ({ ...current, number: event.target.value }))} placeholder="**** **** **** ****" value={cardForm.number} /></div>
+                    <Field inputMode="numeric" label="Expiry" name="expiry" onChange={updateCardField} placeholder="MM / YY" value={cardForm.expiry} />
+                    <div className="sm:col-span-2"><Field inputMode="numeric" label="Mock card number" name="number" onChange={updateCardField} placeholder="4242 4242 4242 4242" value={cardForm.number} /></div>
                   </div>
                   <button className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#11243e] px-6 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={saving} type="submit"><CreditCard size={17} />Save card</button>
                 </form>

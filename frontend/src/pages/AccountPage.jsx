@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Store,
+  XCircle,
 } from 'lucide-react'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -199,6 +200,28 @@ function AccountPage() {
     }
   }
 
+  const cancelOrder = async (orderId) => {
+    setError('')
+    setMessage('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${orderId}/cancel`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to cancel this order.')
+
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order.id === orderId ? { ...order, status: 'cancelled' } : order)),
+      )
+      setMessage('Your order has been cancelled.')
+    } catch (caughtError) {
+      setError(caughtError.message)
+    }
+  }
+
   const sendReset = async () => {
     setError('')
     try {
@@ -375,7 +398,7 @@ function AccountPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {orders.map((order) => <OrderCard key={order.id} order={order} />)}
+                    {orders.map((order) => <OrderCard key={order.id} onCancel={cancelOrder} order={order} />)}
                   </div>
                 )}
               </div>
@@ -410,8 +433,9 @@ function SaveButton({ saving }) {
   return <button className="mt-7 inline-flex items-center gap-2 rounded-full bg-[#11243e] px-6 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={saving} type="submit"><Save size={17} />{saving ? 'Saving…' : 'Save changes'}</button>
 }
 
-function OrderCard({ order }) {
+function OrderCard({ onCancel, order }) {
   const createdAt = order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000) : null
+  const canCancel = ['confirmed', 'packing'].includes(order.status)
   return (
     <article className="rounded-2xl border border-slate-200 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
@@ -419,7 +443,15 @@ function OrderCard({ order }) {
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold capitalize text-emerald-700">{order.status}</span>
       </div>
       <div className="mt-4 space-y-2">{order.items?.map((item, index) => <div className="flex justify-between gap-4 text-sm" key={`${item.productId}-${index}`}><span className="text-slate-600">{item.quantity}× {item.name}</span><span className="font-medium">${(item.price * item.quantity).toFixed(2)}</span></div>)}</div>
-      <div className="mt-4 flex justify-between border-t border-slate-100 pt-4"><span className="font-semibold text-[#11243e]">Total</span><span className="font-semibold text-[#11243e]">${order.totals?.total?.toFixed(2)}</span></div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <span className="font-semibold text-[#11243e]">Total</span>
+        <span className="font-semibold text-[#11243e]">${order.totals?.total?.toFixed(2)}</span>
+        {canCancel && (
+          <button className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100" onClick={() => onCancel(order.id)} type="button">
+            <XCircle size={16} /> Cancel order
+          </button>
+        )}
+      </div>
     </article>
   )
 }

@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/requireAuth.js'
 const orderRouter = Router()
 
 const orderStatuses = ['confirmed', 'packing', 'shipped', 'delivered', 'cancelled']
+const buyerCancellableStatuses = ['confirmed', 'packing']
 
 async function requireAdminUser(request, response) {
   const snapshot = await firestore().collection('users').doc(request.user.uid).get()
@@ -89,6 +90,43 @@ orderRouter.patch('/:orderId/status', requireAuth, async (request, response, nex
     )
 
     return response.json({ order: { id: snapshot.id, ...snapshot.data(), status } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+orderRouter.patch('/:orderId/cancel', requireAuth, async (request, response, next) => {
+  try {
+    const orderReference = firestore().collection('orders').doc(request.params.orderId)
+    const snapshot = await orderReference.get()
+
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Order not found.' })
+    }
+
+    const order = snapshot.data()
+    if (order.userId !== request.user.uid) {
+      return response.status(403).json({ message: 'You can only cancel your own orders.' })
+    }
+
+    if (!buyerCancellableStatuses.includes(order.status)) {
+      return response.status(409).json({ message: 'This order can no longer be cancelled.' })
+    }
+
+    await orderReference.set(
+      {
+        status: 'cancelled',
+        updatedAt: FieldValue.serverTimestamp(),
+        statusHistory: FieldValue.arrayUnion({
+          status: 'cancelled',
+          updatedAt: new Date().toISOString(),
+          updatedBy: request.user.uid,
+        }),
+      },
+      { merge: true },
+    )
+
+    return response.json({ order: { id: snapshot.id, ...order, status: 'cancelled' } })
   } catch (error) {
     return next(error)
   }

@@ -1,0 +1,225 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ArrowLeft,
+  ClipboardList,
+  Mail,
+  MapPin,
+  PackageCheck,
+  Phone,
+  RefreshCw,
+} from 'lucide-react'
+import { Link, Navigate } from 'react-router-dom'
+import { useAuth } from '../context/useAuth.js'
+
+const statusStyles = {
+  confirmed: 'bg-blue-50 text-blue-700',
+  packing: 'bg-amber-50 text-amber-700',
+  shipped: 'bg-indigo-50 text-indigo-700',
+  delivered: 'bg-emerald-50 text-emerald-700',
+  cancelled: 'bg-rose-50 text-rose-700',
+}
+
+function AdminPage() {
+  const { authLoading, profile, user } = useAuth()
+  const [orders, setOrders] = useState([])
+  const [statuses, setStatuses] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [savingOrderId, setSavingOrderId] = useState('')
+  const [error, setError] = useState('')
+
+  const orderCounts = useMemo(
+    () =>
+      statuses.map((status) => ({
+        status,
+        count: orders.filter((order) => order.status === status).length,
+      })),
+    [orders, statuses],
+  )
+
+  useEffect(() => {
+    if (!user || !profile?.isAdmin) return
+    const controller = new AbortController()
+
+    async function loadOrders() {
+      setError('')
+      setLoading(true)
+
+      try {
+        const token = await user.getIdToken()
+        const response = await fetch('/api/orders/admin', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(body.message || 'Unable to load orders.')
+
+        setOrders(body.orders || [])
+        setStatuses(body.statuses || [])
+      } catch (caughtError) {
+        if (caughtError.name !== 'AbortError') setError(caughtError.message)
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+
+    loadOrders()
+    return () => controller.abort()
+  }, [profile?.isAdmin, user])
+
+  const updateStatus = async (orderId, status) => {
+    const currentOrders = orders
+    setSavingOrderId(orderId)
+    setError('')
+    setOrders((existingOrders) =>
+      existingOrders.map((order) => (order.id === orderId ? { ...order, status } : order)),
+    )
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to update order status.')
+    } catch (caughtError) {
+      setOrders(currentOrders)
+      setError(caughtError.message)
+    } finally {
+      setSavingOrderId('')
+    }
+  }
+
+  if (authLoading) {
+    return <main className="grid min-h-screen place-items-center bg-slate-50"><span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" /></main>
+  }
+
+  if (!user) return <Navigate replace state={{ from: '/admin' }} to="/login" />
+  if (!profile?.isAdmin) return <Navigate replace to="/account" />
+
+  return (
+    <main className="min-h-screen bg-slate-50 text-slate-950">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="page-container flex items-center py-5">
+          <Link className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-700" to="/account">
+            <ArrowLeft size={17} /> Account
+          </Link>
+          <Link className="ml-auto text-xl font-bold tracking-[-0.06em] text-[#11243e] sm:text-2xl" to="/">NORTHSTAR</Link>
+        </div>
+      </header>
+
+      <div className="page-container py-10 sm:py-14">
+        <div className="flex flex-wrap items-end justify-between gap-5">
+          <div>
+            <p className="text-sm font-semibold text-blue-700">Admin</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.03em] text-[#11243e] sm:text-4xl">Order management</h1>
+            <p className="mt-2 text-sm text-slate-500">Review orders and update fulfillment status.</p>
+          </div>
+          <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
+            <ClipboardList size={17} /> {orders.length} orders
+          </span>
+        </div>
+
+        {orderCounts.length > 0 && (
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {orderCounts.map(({ count, status }) => (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4" key={status}>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{status}</p>
+                <p className="mt-2 text-2xl font-semibold text-[#11243e]">{count}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && <p className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700" role="alert">{error}</p>}
+
+        {loading ? (
+          <div className="mt-10 grid min-h-80 place-items-center rounded-3xl border border-slate-200 bg-white">
+            <span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" />
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="mt-10 grid min-h-80 place-items-center rounded-3xl border border-dashed border-slate-300 bg-white text-center">
+            <div>
+              <PackageCheck className="mx-auto text-slate-400" size={34} />
+              <h2 className="mt-4 font-semibold text-[#11243e]">No orders yet</h2>
+              <p className="mt-1 text-sm text-slate-500">New orders will appear here.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-8 grid gap-5">
+            {orders.map((order) => (
+              <OrderBoardCard
+                key={order.id}
+                onStatusChange={updateStatus}
+                order={order}
+                saving={savingOrderId === order.id}
+                statuses={statuses}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+
+function OrderBoardCard({ onStatusChange, order, saving, statuses }) {
+  const createdAt = order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000) : null
+  const delivery = order.delivery || {}
+  const total = Number(order.totals?.total || 0)
+
+  return (
+    <article className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Order {order.id}</p>
+          <h2 className="mt-1 text-xl font-semibold text-[#11243e]">{delivery.fullName || order.customerEmail}</h2>
+          <p className="mt-1 text-sm text-slate-500">{createdAt ? createdAt.toLocaleString() : 'Processing date'}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {saving && <RefreshCw className="animate-spin text-slate-400" size={17} />}
+          <select
+            className={`rounded-full border-0 px-4 py-2 text-sm font-semibold capitalize outline-none ring-1 ring-slate-200 ${statusStyles[order.status] || 'bg-slate-50 text-slate-700'}`}
+            disabled={saving}
+            onChange={(event) => onStatusChange(order.id, event.target.value)}
+            value={order.status || 'confirmed'}
+          >
+            {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="space-y-3">
+          {order.items?.map((item, index) => (
+            <div className="flex justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm" key={`${item.productId}-${index}`}>
+              <span className="min-w-0 text-slate-600">
+                <span className="font-semibold text-[#11243e]">{item.quantity}x</span> {item.name}
+                {(item.color || item.size) && <span className="block text-xs text-slate-400">{[item.color, item.size].filter(Boolean).join(' / ')}</span>}
+              </span>
+              <span className="shrink-0 font-semibold text-[#11243e]">${(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+
+        <aside className="rounded-2xl bg-slate-50 p-4 text-sm">
+          <div className="space-y-3 text-slate-600">
+            <p className="flex gap-2"><Mail className="mt-0.5 shrink-0 text-slate-400" size={16} /> {delivery.email || order.customerEmail}</p>
+            <p className="flex gap-2"><Phone className="mt-0.5 shrink-0 text-slate-400" size={16} /> {delivery.phone || 'No phone'}</p>
+            <p className="flex gap-2"><MapPin className="mt-0.5 shrink-0 text-slate-400" size={16} /> {[delivery.address, delivery.city, delivery.postalCode].filter(Boolean).join(', ')}</p>
+          </div>
+          <div className="mt-4 flex justify-between border-t border-slate-200 pt-4 font-semibold text-[#11243e]">
+            <span>Total</span>
+            <span>${total.toFixed(2)}</span>
+          </div>
+        </aside>
+      </div>
+    </article>
+  )
+}
+
+export default AdminPage

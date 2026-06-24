@@ -5,6 +5,16 @@ import { requireAuth } from '../middleware/requireAuth.js'
 
 const orderRouter = Router()
 
+const orderStatuses = ['confirmed', 'packing', 'shipped', 'delivered', 'cancelled']
+
+async function requireAdminUser(request, response) {
+  const snapshot = await firestore().collection('users').doc(request.user.uid).get()
+  if (snapshot.data()?.isAdmin) return true
+
+  response.status(403).json({ message: 'Admin access required.' })
+  return false
+}
+
 const coupons = {
   NORTHSTAR10: { type: 'percent', value: 10 },
   SAVE20: { type: 'fixed', value: 20, minimum: 100 },
@@ -31,6 +41,59 @@ orderRouter.get('/', requireAuth, async (request, response, next) => {
   }
 })
 
+orderRouter.get('/admin', requireAuth, async (request, response, next) => {
+  try {
+    if (!(await requireAdminUser(request, response))) return
+
+    const snapshot = await firestore().collection('orders').get()
+    const orders = snapshot.docs
+      .map((document) => ({ id: document.id, ...document.data() }))
+      .sort((first, second) => {
+        const firstTime = first.createdAt?.toMillis?.() || 0
+        const secondTime = second.createdAt?.toMillis?.() || 0
+        return secondTime - firstTime
+      })
+
+    return response.json({ orders, statuses: orderStatuses })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+orderRouter.patch('/:orderId/status', requireAuth, async (request, response, next) => {
+  try {
+    if (!(await requireAdminUser(request, response))) return
+
+    const status = String(request.body.status || '').trim()
+    if (!orderStatuses.includes(status)) {
+      return response.status(400).json({ message: 'Choose a valid order status.' })
+    }
+
+    const orderReference = firestore().collection('orders').doc(request.params.orderId)
+    const snapshot = await orderReference.get()
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Order not found.' })
+    }
+
+    await orderReference.set(
+      {
+        status,
+        updatedAt: FieldValue.serverTimestamp(),
+        statusHistory: FieldValue.arrayUnion({
+          status,
+          updatedAt: new Date().toISOString(),
+          updatedBy: request.user.uid,
+        }),
+      },
+      { merge: true },
+    )
+
+    return response.json({ order: { id: snapshot.id, ...snapshot.data(), status } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 orderRouter.post('/', requireAuth, async (request, response, next) => {
   try {
     const { cartId, delivery, items, paymentMethod } = request.body
@@ -43,7 +106,7 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
       return response.status(400).json({ message: 'Choose a valid payment method.' })
     }
 
-    const requiredDeliveryFields = ['fullName', 'email', 'phone', 'address', 'city', 'postalCode']
+    const requiredDeliveryFields = ['fullName', 'email', 'phone', 'address', 'city']
     if (requiredDeliveryFields.some((field) => !delivery?.[field]?.trim())) {
       return response.status(400).json({ message: 'Complete all delivery details.' })
     }

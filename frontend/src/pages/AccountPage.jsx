@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ChevronDown,
   CircleUserRound,
+  ClipboardList,
   CreditCard,
   House,
   KeyRound,
@@ -246,6 +247,11 @@ function AccountPage() {
               </select>
               <ChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             </label>
+            {profile?.isAdmin && (
+              <Link className="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-blue-700 lg:hidden" to="/admin">
+                <ClipboardList size={18} /> Admin board
+              </Link>
+            )}
 
             <nav className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 lg:block">
               {sections.map(({ id, icon: Icon, label }) => (
@@ -260,7 +266,12 @@ function AccountPage() {
                   <Icon size={18} /> {label}
                 </button>
               ))}
-              <button className="mt-2 flex w-full items-center gap-3 border-t border-slate-100 px-4 py-4 text-left text-sm font-semibold text-rose-700" onClick={logout} type="button">
+              {profile?.isAdmin && (
+                <Link className="mt-2 flex w-full items-center gap-3 border-t border-slate-100 px-4 py-4 text-left text-sm font-semibold text-blue-700" to="/admin">
+                  <ClipboardList size={18} /> Admin board
+                </Link>
+              )}
+              <button className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-4 text-left text-sm font-semibold text-rose-700" onClick={logout} type="button">
                 <LogOut size={18} /> Sign out
               </button>
             </nav>
@@ -288,7 +299,7 @@ function AccountPage() {
                   <div className="sm:col-span-2 mt-2 flex items-center gap-3 rounded-2xl bg-blue-50 p-4 text-sm text-blue-800"><House size={19} /><span>Save your address for future orders.</span></div>
                   <div className="sm:col-span-2"><Field label="Street address" name="address" onChange={updateField} value={form.address} /></div>
                   <Field label="City / Province" name="city" onChange={updateField} value={form.city} />
-                  <Field label="Postal code" name="postalCode" onChange={updateField} value={form.postalCode} />
+                  <Field label="Postal code" name="postalCode" onChange={updateField} required={false} value={form.postalCode} />
                   <div className="sm:col-span-2"><Field label="Country" name="country" onChange={updateField} value={form.country} /></div>
                 </div>
                 <SaveButton saving={saving} />

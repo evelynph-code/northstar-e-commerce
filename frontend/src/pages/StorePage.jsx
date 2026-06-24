@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Search,
   ShoppingBag,
   ShoppingCart,
@@ -12,7 +13,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { useCart } from '../context/useCart.js'
 import { inventorySocket } from '../lib/socket.js'
@@ -120,8 +121,9 @@ function FilterPanel({
 }
 
 function App() {
-  const { authLoading, logout, profile, user } = useAuth()
+  const { authLoading, logout, profile, updateProfileState, user } = useAuth()
   const { addItem, itemCount } = useCart()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const categoryFromUrl = searchParams.get('category')
   const offersFromUrl = searchParams.get('offers') === 'true'
@@ -136,6 +138,10 @@ function App() {
   const [productsLoading, setProductsLoading] = useState(true)
   const [productsError, setProductsError] = useState('')
   const [profileOpen, setProfileOpen] = useState(false)
+  const [adminModalOpen, setAdminModalOpen] = useState(false)
+  const [adminConfirmed, setAdminConfirmed] = useState(false)
+  const [adminSaving, setAdminSaving] = useState(false)
+  const [adminError, setAdminError] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [offersOnly, setOffersOnly] = useState(offersFromUrl)
   const [searchQuery, setSearchQuery] = useState(queryFromUrl)
@@ -307,6 +313,37 @@ function App() {
     })
   }
 
+  const requestAdminAccess = async (event) => {
+    event.preventDefault()
+    if (!adminConfirmed) return
+
+    setAdminSaving(true)
+    setAdminError('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch('/api/auth/me/admin-access', {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirmAdmin: true }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to enable management access.')
+
+      updateProfileState(body.user)
+      setAdminModalOpen(false)
+      setAdminConfirmed(false)
+      navigate('/admin')
+    } catch (caughtError) {
+      setAdminError(caughtError.message)
+    } finally {
+      setAdminSaving(false)
+    }
+  }
+
   const showOffers = () => {
     setCurrentPage(1)
     setSelectedCategories([])
@@ -413,6 +450,28 @@ function App() {
                     >
                       <ShoppingBag size={17} /> My orders
                     </Link>
+                    {profile?.isAdmin && (
+                      <Link
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
+                        onClick={() => setProfileOpen(false)}
+                        to="/admin"
+                      >
+                        <ClipboardList size={17} /> Management console
+                      </Link>
+                    )}
+                    {!profile?.isAdmin && (
+                      <button
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
+                        onClick={() => {
+                          setProfileOpen(false)
+                          setAdminModalOpen(true)
+                          setAdminError('')
+                        }}
+                        type="button"
+                      >
+                        <ClipboardList size={17} /> Management access
+                      </button>
+                    )}
                     <button
                       className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-rose-700"
                       onClick={logout}
@@ -637,6 +696,55 @@ function App() {
               Show {filteredProducts.length} products
             </button>
           </aside>
+        </div>
+      )}
+
+      {adminModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-5">
+          <form className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-7" onSubmit={requestAdminAccess}>
+            <div className="flex items-start gap-4">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-700">
+                <ClipboardList size={21} />
+              </span>
+              <div>
+                <h2 className="text-xl font-semibold text-[#11243e]">Management access</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Confirm your administrative access to continue to the management console.</p>
+              </div>
+            </div>
+
+            <label className="mt-6 flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 p-4 text-sm font-semibold text-slate-700">
+              <input
+                checked={adminConfirmed}
+                className="size-4 accent-blue-700"
+                onChange={(event) => setAdminConfirmed(event.target.checked)}
+                type="checkbox"
+              />
+              <span>Confirm I am an admin</span>
+            </label>
+
+            {adminError && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{adminError}</p>}
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                onClick={() => {
+                  setAdminModalOpen(false)
+                  setAdminConfirmed(false)
+                  setAdminError('')
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="inline-flex items-center gap-2 rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!adminConfirmed || adminSaving}
+                type="submit"
+              >
+                <ClipboardList size={17} /> {adminSaving ? 'Confirming...' : 'Open console'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </main>

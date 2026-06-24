@@ -73,6 +73,33 @@ authRouter.get('/me', requireAuth, async (request, response, next) => {
   }
 })
 
+authRouter.patch('/me/admin-access', requireAuth, async (request, response, next) => {
+  try {
+    if (request.body.confirmAdmin !== true) {
+      return response.status(400).json({ message: 'Confirm admin access before continuing.' })
+    }
+
+    const updates = {
+      isAdmin: true,
+      uid: request.user.uid,
+      email: request.user.email,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+
+    await firestore().collection('users').doc(request.user.uid).set(updates, { merge: true })
+
+    return response.json({
+      user: {
+        isAdmin: true,
+        uid: request.user.uid,
+        email: request.user.email,
+      },
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 authRouter.patch('/me', requireAuth, async (request, response, next) => {
   try {
     const allowedFields = [

@@ -144,7 +144,7 @@ function CheckoutPage() {
               <Field defaultValue={profile?.displayName || ''} label="Full name" name="fullName" />
               <Field defaultValue={profile?.email || user.email || ''} label="Email" name="email" type="email" />
               <Field defaultValue={profile?.phone || ''} label="Phone" name="phone" type="tel" />
-              <Field defaultValue={profile?.postalCode || ''} label="Postal code" name="postalCode" />
+              <Field defaultValue={profile?.postalCode || ''} label="Postal code" name="postalCode" required={false} />
               <div className="sm:col-span-2"><Field defaultValue={profile?.address || ''} label="Street address" name="address" /></div>
               <div className="sm:col-span-2"><Field defaultValue={profile?.city || ''} label="City / Province" name="city" /></div>
             </div>

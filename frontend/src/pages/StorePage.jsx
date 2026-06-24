@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Star,
   LogOut,
+  Store,
   UserRound,
   X,
 } from 'lucide-react'
@@ -19,6 +20,18 @@ import { useCart } from '../context/useCart.js'
 import { inventorySocket } from '../lib/socket.js'
 
 const productsPerPage = 12
+const sellerCategoryFallbacks = ['Apparel', 'Accessories', 'Footwear', 'Home goods', 'Electronics', 'Beauty']
+
+function hasCreatedSellerShop(userId) {
+  if (!userId) return false
+
+  try {
+    const workspace = JSON.parse(localStorage.getItem(`northstar-seller-${userId}`) || '{}')
+    return Boolean(workspace.shop?.name?.trim())
+  } catch {
+    return false
+  }
+}
 
 function formatSold(value) {
   if (value < 1000) return value.toString()
@@ -142,6 +155,9 @@ function App() {
   const [adminConfirmed, setAdminConfirmed] = useState(false)
   const [adminSaving, setAdminSaving] = useState(false)
   const [adminError, setAdminError] = useState('')
+  const [sellerModalOpen, setSellerModalOpen] = useState(false)
+  const [sellerStep, setSellerStep] = useState('confirm')
+  const [sellerShop, setSellerShop] = useState({ name: '', category: '' })
   const [currentPage, setCurrentPage] = useState(1)
   const [offersOnly, setOffersOnly] = useState(offersFromUrl)
   const [searchQuery, setSearchQuery] = useState(queryFromUrl)
@@ -207,6 +223,11 @@ function App() {
       .map(([name, count]) => ({ name, count }))
       .sort((first, second) => first.name.localeCompare(second.name))
   }, [inventory])
+
+  const sellerCategoryOptions = categoryOptions.length > 0
+    ? categoryOptions.map(({ name }) => name)
+    : sellerCategoryFallbacks
+  const hasSellerShop = hasCreatedSellerShop(user?.uid)
 
   const filteredProducts = useMemo(
     () => {
@@ -344,6 +365,40 @@ function App() {
     }
   }
 
+  const openSellerOnboarding = () => {
+    setProfileOpen(false)
+    setSellerModalOpen(true)
+    setSellerStep('confirm')
+    setSellerShop({ name: '', category: sellerCategoryOptions[0] || '' })
+  }
+
+  const createSellerShop = (event) => {
+    event.preventDefault()
+    const storageKey = `northstar-seller-${user.uid}`
+    const savedWorkspace = (() => {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey) || '{}')
+      } catch {
+        return {}
+      }
+    })()
+    const nextShop = {
+      ...(savedWorkspace.shop || {}),
+      name: sellerShop.name.trim(),
+      category: sellerShop.category,
+    }
+
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        shop: nextShop,
+        items: Array.isArray(savedWorkspace.items) ? savedWorkspace.items : [],
+      }),
+    )
+    setSellerModalOpen(false)
+    navigate('/seller')
+  }
+
   const showOffers = () => {
     setCurrentPage(1)
     setSelectedCategories([])
@@ -450,6 +505,23 @@ function App() {
                     >
                       <ShoppingBag size={17} /> My orders
                     </Link>
+                    {hasSellerShop ? (
+                      <Link
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
+                        onClick={() => setProfileOpen(false)}
+                        to="/seller"
+                      >
+                        <Store size={17} /> My shop
+                      </Link>
+                    ) : (
+                      <button
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
+                        onClick={openSellerOnboarding}
+                        type="button"
+                      >
+                        <Store size={17} /> Become a seller
+                      </button>
+                    )}
                     {profile?.isAdmin && (
                       <Link
                         className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700"
@@ -696,6 +768,82 @@ function App() {
               Show {filteredProducts.length} products
             </button>
           </aside>
+        </div>
+      )}
+
+      {sellerModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-5">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-7">
+            <div className="flex items-start gap-4">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700">
+                <Store size={21} />
+              </span>
+              <div>
+                <h2 className="text-xl font-semibold text-[#11243e]">
+                  {sellerStep === 'confirm' ? 'Become a seller' : 'Create your shop'}
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {sellerStep === 'confirm'
+                    ? 'Are you sure you want to be a seller?'
+                    : 'Start with a shop name and the main category of items you plan to sell.'}
+                </p>
+              </div>
+            </div>
+
+            {sellerStep === 'confirm' ? (
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                  onClick={() => setSellerModalOpen(false)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white"
+                  onClick={() => setSellerStep('create')}
+                  type="button"
+                >
+                  Yes, continue
+                </button>
+              </div>
+            ) : (
+              <form className="mt-6 space-y-5" onSubmit={createSellerShop}>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">Shop name</span>
+                  <input
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                    onChange={(event) => setSellerShop((current) => ({ ...current, name: event.target.value }))}
+                    required
+                    value={sellerShop.name}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">Selling category</span>
+                  <select
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                    onChange={(event) => setSellerShop((current) => ({ ...current, category: event.target.value }))}
+                    required
+                    value={sellerShop.category}
+                  >
+                    {sellerCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+                <div className="flex flex-wrap justify-end gap-3 pt-1">
+                  <button
+                    className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                    onClick={() => setSellerStep('confirm')}
+                    type="button"
+                  >
+                    Back
+                  </button>
+                  <button className="rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white" type="submit">
+                    Create shop
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 

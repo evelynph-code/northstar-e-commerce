@@ -11,6 +11,7 @@ import {
   Save,
   ShieldCheck,
   ShoppingBag,
+  Store,
 } from 'lucide-react'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -23,6 +24,17 @@ const sections = [
   { id: 'payment', label: 'Payment', icon: CreditCard },
   { id: 'security', label: 'Security', icon: ShieldCheck },
 ]
+
+function hasCreatedSellerShop(userId) {
+  if (!userId) return false
+
+  try {
+    const workspace = JSON.parse(localStorage.getItem(`northstar-seller-${userId}`) || '{}')
+    return Boolean(workspace.shop?.name?.trim())
+  } catch {
+    return false
+  }
+}
 
 function AccountPage() {
   const { authLoading, logout, profile, updateProfileState, user } = useAuth()
@@ -205,6 +217,7 @@ function AccountPage() {
 
   const currentSection = sections.find((section) => section.id === activeSection)
   const CurrentSectionIcon = currentSection.icon
+  const hasSellerShop = hasCreatedSellerShop(user?.uid)
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -252,6 +265,11 @@ function AccountPage() {
                 <ClipboardList size={18} /> Admin board
               </Link>
             )}
+            {hasSellerShop && (
+              <Link className="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-emerald-700 lg:hidden" to="/seller">
+                <Store size={18} /> My shop
+              </Link>
+            )}
 
             <nav className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 lg:block">
               {sections.map(({ id, icon: Icon, label }) => (
@@ -269,6 +287,11 @@ function AccountPage() {
               {profile?.isAdmin && (
                 <Link className="mt-2 flex w-full items-center gap-3 border-t border-slate-100 px-4 py-4 text-left text-sm font-semibold text-blue-700" to="/admin">
                   <ClipboardList size={18} /> Admin board
+                </Link>
+              )}
+              {hasSellerShop && (
+                <Link className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-4 text-left text-sm font-semibold text-emerald-700" to="/seller">
+                  <Store size={18} /> My shop
                 </Link>
               )}
               <button className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-4 text-left text-sm font-semibold text-rose-700" onClick={logout} type="button">

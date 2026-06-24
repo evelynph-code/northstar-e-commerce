@@ -10,7 +10,7 @@ import {
   Trash2,
   Truck,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/useCart.js'
 
@@ -42,6 +42,7 @@ function CartPage() {
     itemCount,
     items,
     originalSubtotal,
+    refreshStock,
     removeItem,
     subtotal,
     updateQuantity,
@@ -49,6 +50,10 @@ function CartPage() {
   const [couponInput, setCouponInput] = useState('')
   const [appliedCoupon, setAppliedCoupon] = useState(null)
   const [couponMessage, setCouponMessage] = useState('')
+
+  useEffect(() => {
+    refreshStock().catch(console.error)
+  }, [refreshStock])
 
   const savings = originalSubtotal - subtotal
   const couponDiscount = appliedCoupon?.type === 'percent'
@@ -158,7 +163,7 @@ function CartPage() {
                         <button
                           aria-label={`Remove ${item.name}`}
                           className="shrink-0 rounded-full p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-700"
-                          onClick={() => removeItem(item.lineId).catch(console.error)}
+                          onClick={() => removeItem(item.lineId)}
                           type="button"
                         >
                           <Trash2 size={18} />
@@ -171,7 +176,7 @@ function CartPage() {
                             aria-label={`Decrease ${item.name} quantity`}
                             className="grid size-10 place-items-center text-slate-600 disabled:opacity-30"
                             disabled={item.quantity === 1}
-                            onClick={() => updateQuantity(item.lineId, item.quantity - 1).catch(console.error)}
+                            onClick={() => updateQuantity(item.lineId, item.quantity - 1)}
                             type="button"
                           >
                             <Minus size={16} />
@@ -181,7 +186,7 @@ function CartPage() {
                             aria-label={`Increase ${item.name} quantity`}
                             className="grid size-10 place-items-center text-slate-600 disabled:opacity-30"
                             disabled={item.quantity >= item.stock}
-                            onClick={() => updateQuantity(item.lineId, item.quantity + 1).catch(console.error)}
+                            onClick={() => updateQuantity(item.lineId, item.quantity + 1)}
                             type="button"
                           >
                             <Plus size={16} />

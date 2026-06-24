@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
 import { firestore } from '../config/firebase.js'
 import { requireAuth } from '../middleware/requireAuth.js'
+import { broadcastStockUpdate } from '../socket.js'
 
 const orderRouter = Router()
 
@@ -97,37 +98,74 @@ orderRouter.patch('/:orderId/status', requireAuth, async (request, response, nex
 
 orderRouter.patch('/:orderId/cancel', requireAuth, async (request, response, next) => {
   try {
-    const orderReference = firestore().collection('orders').doc(request.params.orderId)
-    const snapshot = await orderReference.get()
+    const database = firestore()
+    const orderReference = database.collection('orders').doc(request.params.orderId)
 
-    if (!snapshot.exists) {
-      return response.status(404).json({ message: 'Order not found.' })
-    }
+    const result = await database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(orderReference)
 
-    const order = snapshot.data()
-    if (order.userId !== request.user.uid) {
-      return response.status(403).json({ message: 'You can only cancel your own orders.' })
-    }
+      if (!snapshot.exists) {
+        const error = new Error('Order not found.')
+        error.status = 404
+        throw error
+      }
 
-    if (!buyerCancellableStatuses.includes(order.status)) {
-      return response.status(409).json({ message: 'This order can no longer be cancelled.' })
-    }
+      const order = snapshot.data()
+      if (order.userId !== request.user.uid) {
+        const error = new Error('You can only cancel your own orders.')
+        error.status = 403
+        throw error
+      }
 
-    await orderReference.set(
-      {
-        status: 'cancelled',
-        updatedAt: FieldValue.serverTimestamp(),
-        statusHistory: FieldValue.arrayUnion({
+      if (!buyerCancellableStatuses.includes(order.status)) {
+        const error = new Error('This order can no longer be cancelled.')
+        error.status = 409
+        throw error
+      }
+
+      const stockReferences = (order.items || []).map((item) => ({
+        item,
+        productReference: database.collection('products').doc(item.productId),
+      }))
+      const productSnapshots = await Promise.all(
+        stockReferences.map(({ productReference }) => transaction.get(productReference)),
+      )
+      const stockUpdates = []
+
+      stockReferences.forEach(({ item, productReference }, index) => {
+        const productSnapshot = productSnapshots[index]
+        if (!productSnapshot.exists) return
+
+        const stock = (Number(productSnapshot.data().stock) || 0) + Number(item.quantity || 0)
+        transaction.update(productReference, { stock })
+        stockUpdates.push({ productId: item.productId, stock })
+      })
+
+      transaction.set(
+        orderReference,
+        {
           status: 'cancelled',
-          updatedAt: new Date().toISOString(),
-          updatedBy: request.user.uid,
-        }),
-      },
-      { merge: true },
-    )
+          updatedAt: FieldValue.serverTimestamp(),
+          stockRestoredAt: FieldValue.serverTimestamp(),
+          statusHistory: FieldValue.arrayUnion({
+            status: 'cancelled',
+            updatedAt: new Date().toISOString(),
+            updatedBy: request.user.uid,
+          }),
+        },
+        { merge: true },
+      )
 
-    return response.json({ order: { id: snapshot.id, ...order, status: 'cancelled' } })
+      return {
+        order: { id: snapshot.id, ...order, status: 'cancelled' },
+        stockUpdates,
+      }
+    })
+
+    result.stockUpdates.forEach((stockUpdate) => broadcastStockUpdate(stockUpdate))
+    return response.json({ order: result.order })
   } catch (error) {
+    if (error.status) return response.status(error.status).json({ message: error.message })
     return next(error)
   }
 })
@@ -166,25 +204,18 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
     const couponCode = request.body.couponCode?.trim().toUpperCase() || ''
 
     const order = await database.runTransaction(async (transaction) => {
-      const references = productIds.map((productId) => {
-        const productReference = database.collection('products').doc(productId)
-        return {
-          productId,
-          productReference,
-          reservationReference: productReference.collection('reservations').doc(cartId),
-        }
-      })
+      const references = productIds.map((productId) => ({
+        productId,
+        productReference: database.collection('products').doc(productId),
+      }))
       const snapshots = await Promise.all(
-        references.flatMap(({ productReference, reservationReference }) => [
-          transaction.get(productReference),
-          transaction.get(reservationReference),
-        ]),
+        references.map(({ productReference }) => transaction.get(productReference)),
       )
 
       const orderProducts = []
+      const stockUpdates = []
       references.forEach((reference, index) => {
-        const productSnapshot = snapshots[index * 2]
-        const reservationSnapshot = snapshots[index * 2 + 1]
+        const productSnapshot = snapshots[index]
         const requestedQuantity = quantitiesByProduct[reference.productId]
 
         if (!productSnapshot.exists) {
@@ -193,19 +224,24 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
           throw error
         }
 
-        const reservedQuantity = Number(reservationSnapshot.data()?.quantity) || 0
-        if (reservedQuantity !== requestedQuantity) {
-          const error = new Error(`${productSnapshot.data().name} is no longer available in the requested quantity.`)
+        const product = productSnapshot.data()
+        const currentStock = Number(product.stock) || 0
+        const nextStock = currentStock - requestedQuantity
+
+        if (nextStock < 0) {
+          const error = new Error(`Only ${currentStock} ${product.name} item${currentStock === 1 ? '' : 's'} remaining.`)
           error.status = 409
           throw error
         }
 
         orderProducts.push({
           productId: reference.productId,
-          name: productSnapshot.data().name,
-          price: Number(productSnapshot.data().price),
+          name: product.name,
+          price: Number(product.price),
           quantity: requestedQuantity,
         })
+        stockUpdates.push({ productId: reference.productId, stock: nextStock })
+        transaction.update(reference.productReference, { stock: nextStock })
       })
 
       const subtotal = orderProducts.reduce(
@@ -250,17 +286,19 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
       }
 
       transaction.set(orderReference, orderData)
-      references.forEach(({ reservationReference }) => transaction.delete(reservationReference))
 
       return {
         id: orderReference.id,
         status: orderData.status,
         total,
         paymentStatus: orderData.payment.status,
+        stockUpdates,
       }
     })
 
-    return response.status(201).json({ order })
+    order.stockUpdates.forEach((stockUpdate) => broadcastStockUpdate(stockUpdate))
+    const { stockUpdates, ...orderResponse } = order
+    return response.status(201).json({ order: orderResponse })
   } catch (error) {
     if (error.status) return response.status(error.status).json({ message: error.message })
     return next(error)

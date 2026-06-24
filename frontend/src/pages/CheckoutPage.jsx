@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Banknote,
@@ -30,7 +30,7 @@ function formatExpiry(value) {
 
 function CheckoutPage() {
   const { authLoading, profile, user } = useAuth()
-  const { cartId, completeOrder, items, subtotal } = useCart()
+  const { cartId, completeOrder, items, refreshStock, subtotal } = useCart()
   const [searchParams] = useSearchParams()
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [cardDetails, setCardDetails] = useState({
@@ -55,13 +55,27 @@ function CheckoutPage() {
   const tax = discountedSubtotal * 0.08
   const total = discountedSubtotal + shipping + tax
 
+  useEffect(() => {
+    refreshStock()
+      .then(({ adjusted }) => {
+        if (adjusted) setError('Some cart quantities changed because live stock was updated. Review your cart before placing the order.')
+      })
+      .catch((caughtError) => setError(caughtError.message))
+  }, [refreshStock])
+
   const placeOrder = async (event) => {
     event.preventDefault()
+    const formElement = event.currentTarget
     setError('')
     setSubmitting(true)
 
     try {
-      const form = new FormData(event.currentTarget)
+      const { adjusted } = await refreshStock()
+      if (adjusted) {
+        throw new Error('Some cart quantities changed because live stock was updated. Review your cart before placing the order.')
+      }
+
+      const form = new FormData(formElement)
       const cardNumber = String(form.get('cardNumber') || '').replace(/\s/g, '')
 
       if (paymentMethod === 'card' && cardNumber.length < 12) {

@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, ShoppingBag, X } from 'lucide-react'
 import { CartContext } from './cart-context.js'
 import { inventorySocket } from '../lib/socket.js'
 
-// Versioned because inventory reservations were introduced after the original
-// client-only cart. Old line items must not be released into live stock.
 const storageKey = 'northstar-cart-v3'
 const cartIdKey = 'northstar-cart-id-v3'
 
@@ -52,7 +50,7 @@ export function CartProvider({ children }) {
       setItems((current) =>
         current.map((item) =>
           item.productId === productId
-            ? { ...item, stock: stock + item.quantity }
+            ? { ...item, stock }
             : item,
         ),
       )
@@ -62,36 +60,21 @@ export function CartProvider({ children }) {
     return () => inventorySocket.off('product:stock', handleStockUpdate)
   }, [])
 
-  const adjustInventory = async (productId, delta) => {
-    const response = await fetch(`/api/products/${productId}/inventory`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cartId, delta }),
-    })
-    const body = await response.json().catch(() => ({}))
-
-    if (!response.ok) {
-      throw new Error(body.message || 'Unable to update inventory.')
-    }
-
-    return body
-  }
-
   const addItem = async (product, options = {}) => {
     const color = options.color || product.colors?.[0]?.name || ''
     const size = options.size || product.sizes?.[0] || ''
     const quantity = Math.max(1, Number(options.quantity) || 1)
     const lineId = getLineId(product.id, color, size)
+    const existingItem = items.find((item) => item.lineId === lineId)
+    const availableQuantity = Math.max(0, product.stock - (existingItem?.quantity || 0))
     const requestedQuantity = Math.min(
       quantity,
-      Math.max(0, product.stock),
+      availableQuantity,
     )
 
     if (requestedQuantity === 0) {
       throw new Error('No more stock is available for this item.')
     }
-
-    const inventory = await adjustInventory(product.id, requestedQuantity)
 
     setItems((current) => {
       const currentItem = current.find((item) => item.lineId === lineId)
@@ -102,7 +85,7 @@ export function CartProvider({ children }) {
             ? {
                 ...item,
                 quantity: item.quantity + requestedQuantity,
-                stock: inventory.stock + item.quantity + requestedQuantity,
+                stock: product.stock,
               }
             : item,
         )
@@ -117,7 +100,7 @@ export function CartProvider({ children }) {
           category: product.category,
           price: product.price,
           originalPrice: product.originalPrice || null,
-          stock: inventory.stock + requestedQuantity,
+          stock: product.stock,
           color,
           size,
           galleryColors: product.galleryColors || [],
@@ -138,31 +121,56 @@ export function CartProvider({ children }) {
     }, 3200)
   }
 
-  const updateQuantity = async (lineId, quantity) => {
+  const updateQuantity = (lineId, quantity) => {
     const item = items.find((candidate) => candidate.lineId === lineId)
     if (!item) return
 
     const nextQuantity = Math.max(1, Math.min(quantity, item.stock))
-    const delta = nextQuantity - item.quantity
-    if (delta === 0) return
+    if (nextQuantity === item.quantity) return
 
-    const inventory = await adjustInventory(item.productId, delta)
     setItems((current) =>
       current.map((candidate) =>
         candidate.lineId === lineId
-          ? { ...candidate, quantity: nextQuantity, stock: inventory.stock + nextQuantity }
+          ? { ...candidate, quantity: nextQuantity }
           : candidate,
       ),
     )
   }
 
-  const removeItem = async (lineId) => {
-    const item = items.find((candidate) => candidate.lineId === lineId)
-    if (!item) return
-
-    await adjustInventory(item.productId, -item.quantity)
+  const removeItem = (lineId) => {
     setItems((current) => current.filter((item) => item.lineId !== lineId))
   }
+
+  const refreshStock = useCallback(async () => {
+    if (items.length === 0) return { adjusted: false }
+
+    const response = await fetch('/api/products')
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.message || 'Unable to refresh stock.')
+
+    const productsById = new Map((body.products || []).map((product) => [product.id, product]))
+    let adjusted = false
+    const refreshedItems = items
+      .map((item) => {
+        const product = productsById.get(item.productId)
+        if (!product) {
+          adjusted = true
+          return null
+        }
+
+        const stock = Math.max(0, Number(product.stock) || 0)
+        const quantity = Math.min(item.quantity, stock)
+        if (stock !== item.stock || quantity !== item.quantity) adjusted = true
+        if (quantity === 0) return null
+
+        return { ...item, stock, quantity }
+      })
+      .filter(Boolean)
+
+    if (adjusted) setItems(refreshedItems)
+
+    return { adjusted }
+  }, [items])
 
   const completeOrder = () => {
     setItems([])
@@ -184,6 +192,7 @@ export function CartProvider({ children }) {
     itemCount,
     items,
     originalSubtotal,
+    refreshStock,
     removeItem,
     subtotal,
     updateQuantity,

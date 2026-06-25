@@ -8,6 +8,8 @@ import CartPage from './pages/CartPage.jsx'
 import CheckoutPage from './pages/CheckoutPage.jsx'
 import ProductDetailPage from './pages/ProductDetailPage.jsx'
 import SellerPage from './pages/SellerPage.jsx'
+import SellerProductEditorPage from './pages/SellerProductEditorPage.jsx'
+import SellerShopPage from './pages/SellerShopPage.jsx'
 import StorePage from './pages/StorePage.jsx'
 
 function App() {
@@ -23,6 +25,9 @@ function App() {
             <Route element={<AccountPage />} path="/account" />
             <Route element={<AdminPage />} path="/admin" />
             <Route element={<SellerPage />} path="/seller" />
+            <Route element={<SellerShopPage />} path="/seller/shop" />
+            <Route element={<SellerProductEditorPage />} path="/seller/products/new" />
+            <Route element={<SellerProductEditorPage />} path="/seller/products/:itemId/edit" />
             <Route element={<AuthPage mode="login" />} path="/login" />
             <Route element={<AuthPage mode="signup" />} path="/signup" />
             <Route element={<Navigate replace to="/" />} path="*" />

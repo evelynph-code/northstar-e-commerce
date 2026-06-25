@@ -31,10 +31,12 @@ export function CartProvider({ children }) {
   const [items, setItems] = useState(getInitialCart)
   const [cartId, setCartId] = useState(getCartId)
   const [notification, setNotification] = useState(null)
+  const itemsRef = useRef(items)
   const notificationId = useRef(0)
   const notificationTimer = useRef(null)
 
   useEffect(() => {
+    itemsRef.current = items
     localStorage.setItem(storageKey, JSON.stringify(items))
   }, [items])
 
@@ -143,15 +145,18 @@ export function CartProvider({ children }) {
   }
 
   const refreshStock = useCallback(async () => {
-    if (items.length === 0) return { adjusted: false }
+    if (itemsRef.current.length === 0) return { adjusted: false }
 
     const response = await fetch('/api/products')
     const body = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(body.message || 'Unable to refresh stock.')
 
+    const currentItems = itemsRef.current
+    if (currentItems.length === 0) return { adjusted: false }
+
     const productsById = new Map((body.products || []).map((product) => [product.id, product]))
     let adjusted = false
-    const refreshedItems = items
+    const refreshedItems = currentItems
       .map((item) => {
         const product = productsById.get(item.productId)
         if (!product) {
@@ -168,12 +173,17 @@ export function CartProvider({ children }) {
       })
       .filter(Boolean)
 
-    if (adjusted) setItems(refreshedItems)
+    if (adjusted) {
+      itemsRef.current = refreshedItems
+      setItems(refreshedItems)
+    }
 
     return { adjusted }
-  }, [items])
+  }, [])
 
   const completeOrder = () => {
+    itemsRef.current = []
+    localStorage.setItem(storageKey, JSON.stringify([]))
     setItems([])
     const nextCartId = crypto.randomUUID()
     localStorage.setItem(cartIdKey, nextCartId)

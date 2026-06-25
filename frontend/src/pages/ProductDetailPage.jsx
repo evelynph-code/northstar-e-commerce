@@ -110,10 +110,18 @@ function ProductDetailPage() {
   }, [productId])
 
   useEffect(() => {
-    const handleStockUpdate = ({ productId: updatedProductId, stock }) => {
+    const handleStockUpdate = ({ productId: updatedProductId, sold, stock }) => {
       if (updatedProductId !== productId) return
 
-      setProduct((current) => current ? { ...current, stock } : current)
+      setProduct((current) =>
+        current
+          ? {
+              ...current,
+              sold: typeof sold === 'number' ? sold : current.sold,
+              stock,
+            }
+          : current,
+      )
       setQuantity((current) => Math.max(1, Math.min(current, stock || 1)))
     }
 
@@ -320,6 +328,31 @@ function ProductDetailPage() {
           <p className="mt-4 max-w-3xl leading-7 text-slate-600">
             Everything you need to know about materials, care, available options, and everyday use.
           </p>
+
+          {(product.features?.length > 0 || product.howToUse || product.careInstructions) && (
+            <div className="mt-10 grid gap-5 lg:grid-cols-3">
+              {product.features?.length > 0 && (
+                <section className="rounded-3xl border border-slate-200 bg-white p-6">
+                  <h3 className="font-semibold text-[#11243e]">Features</h3>
+                  <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
+                    {product.features.map((feature) => <li key={feature}>{feature}</li>)}
+                  </ul>
+                </section>
+              )}
+              {product.howToUse && (
+                <section className="rounded-3xl border border-slate-200 bg-white p-6">
+                  <h3 className="font-semibold text-[#11243e]">How it is used</h3>
+                  <p className="mt-4 text-sm leading-6 text-slate-600">{product.howToUse}</p>
+                </section>
+              )}
+              {product.careInstructions && (
+                <section className="rounded-3xl border border-slate-200 bg-white p-6">
+                  <h3 className="font-semibold text-[#11243e]">Washing and care</h3>
+                  <p className="mt-4 text-sm leading-6 text-slate-600">{product.careInstructions}</p>
+                </section>
+              )}
+            </div>
+          )}
 
           <dl className="mt-10 grid overflow-hidden rounded-3xl border border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-3">
             {(product.specifications || []).map((specification) => (

@@ -136,9 +136,25 @@ orderRouter.patch('/:orderId/cancel', requireAuth, async (request, response, nex
         const productSnapshot = productSnapshots[index]
         if (!productSnapshot.exists) return
 
-        const stock = (Number(productSnapshot.data().stock) || 0) + Number(item.quantity || 0)
-        transaction.update(productReference, { stock })
-        stockUpdates.push({ productId: item.productId, stock })
+        const product = productSnapshot.data()
+        const quantity = Number(item.quantity || 0)
+        const stock = (Number(product.stock) || 0) + quantity
+        const sold = Math.max(0, (Number(product.sold) || 0) - quantity)
+        transaction.update(productReference, { sold, stock })
+        stockUpdates.push({ productId: item.productId, sold, stock })
+
+        const sellerId = product.sellerId || item.sellerId
+        const sellerItemId = product.sellerItemId || item.sellerItemId
+        if (sellerId && sellerItemId) {
+          transaction.update(
+            database.collection('sellers').doc(sellerId).collection('items').doc(sellerItemId),
+            {
+              sold,
+              stock,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          )
+        }
       })
 
       transaction.set(
@@ -226,7 +242,9 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
 
         const product = productSnapshot.data()
         const currentStock = Number(product.stock) || 0
+        const currentSold = Number(product.sold) || 0
         const nextStock = currentStock - requestedQuantity
+        const nextSold = currentSold + requestedQuantity
 
         if (nextStock < 0) {
           const error = new Error(`Only ${currentStock} ${product.name} item${currentStock === 1 ? '' : 's'} remaining.`)
@@ -236,12 +254,32 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
 
         orderProducts.push({
           productId: reference.productId,
+          sellerId: product.sellerId || '',
+          sellerItemId: product.sellerItemId || '',
           name: product.name,
           price: Number(product.price),
           quantity: requestedQuantity,
         })
-        stockUpdates.push({ productId: reference.productId, stock: nextStock })
-        transaction.update(reference.productReference, { stock: nextStock })
+        stockUpdates.push({ productId: reference.productId, sold: nextSold, stock: nextStock })
+        transaction.update(reference.productReference, {
+          sold: FieldValue.increment(requestedQuantity),
+          stock: nextStock,
+        })
+
+        if (product.sellerId && product.sellerItemId) {
+          transaction.update(
+            database
+              .collection('sellers')
+              .doc(product.sellerId)
+              .collection('items')
+              .doc(product.sellerItemId),
+            {
+              sold: FieldValue.increment(requestedQuantity),
+              stock: nextStock,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          )
+        }
       })
 
       const subtotal = orderProducts.reduce(
@@ -267,6 +305,8 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
         cartId,
         items: items.map((item) => ({
           productId: item.productId,
+          sellerId: orderProducts.find((product) => product.productId === item.productId)?.sellerId || '',
+          sellerItemId: orderProducts.find((product) => product.productId === item.productId)?.sellerItemId || '',
           name: item.name,
           quantity: item.quantity,
           color: item.color || '',

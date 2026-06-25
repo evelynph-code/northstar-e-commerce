@@ -191,10 +191,16 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const handleStockUpdate = ({ productId, stock }) => {
+    const handleStockUpdate = ({ productId, sold, stock }) => {
       setInventory((current) =>
         current.map((product) =>
-          product.id === productId ? { ...product, stock } : product,
+          product.id === productId
+            ? {
+                ...product,
+                sold: typeof sold === 'number' ? sold : product.sold,
+                stock,
+              }
+            : product,
         ),
       )
     }

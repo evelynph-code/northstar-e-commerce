@@ -27,7 +27,9 @@ function AdminPage() {
   const { authLoading, profile, user } = useAuth()
   const [orders, setOrders] = useState([])
   const [pendingItems, setPendingItems] = useState([])
+  const [products, setProducts] = useState([])
   const [statuses, setStatuses] = useState([])
+  const [activeTab, setActiveTab] = useState('orders')
   const [loading, setLoading] = useState(true)
   const [savingOrderId, setSavingOrderId] = useState('')
   const [orderSearch, setOrderSearch] = useState('')
@@ -47,6 +49,10 @@ function AdminPage() {
         count: filteredOrders.filter((order) => order.status === status).length,
       })),
     [filteredOrders, statuses],
+  )
+  const lowStockProducts = useMemo(
+    () => products.filter((product) => Number(product.stock) <= 5),
+    [products],
   )
 
   useEffect(() => {
@@ -73,8 +79,13 @@ function AdminPage() {
         const pendingBody = await pendingResponse.json().catch(() => ({}))
         if (!pendingResponse.ok) throw new Error(pendingBody.message || 'Unable to load seller submissions.')
 
+        const productsResponse = await fetch('/api/products', { signal: controller.signal })
+        const productsBody = await productsResponse.json().catch(() => ({}))
+        if (!productsResponse.ok) throw new Error(productsBody.message || 'Unable to load marketplace products.')
+
         setOrders(body.orders || [])
         setPendingItems(pendingBody.items || [])
+        setProducts(productsBody.products || [])
         setStatuses(body.statuses || [])
       } catch (caughtError) {
         if (caughtError.name !== 'AbortError') setError(caughtError.message)
@@ -159,89 +170,77 @@ function AdminPage() {
             <p className="mt-2 text-sm text-slate-500">Review seller products, orders, and fulfillment status.</p>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
-            <ClipboardList size={17} /> {filteredOrders.length} orders
+            <ClipboardList size={17} /> {activeTab === 'orders' ? `${filteredOrders.length} orders` : `${pendingItems.length} pending`}
           </span>
         </div>
 
-        <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
-            <div>
-              <h2 className="text-xl font-semibold text-[#11243e]">Product approvals</h2>
-              <p className="mt-1 text-sm text-slate-500">{pendingItems.length} pending seller submission{pendingItems.length === 1 ? '' : 's'}</p>
-            </div>
-            <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
-              <ShieldCheck size={15} /> Review required
-            </span>
-          </div>
-
-          {pendingItems.length === 0 ? (
-            <div className="grid min-h-40 place-items-center text-center">
-              <div>
-                <PackageCheck className="mx-auto text-slate-400" size={30} />
-                <p className="mt-3 text-sm font-semibold text-[#11243e]">No products waiting for approval</p>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-5 grid gap-4">
-              {pendingItems.map((item) => (
-                <article className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 md:flex-row md:items-center" key={`${item.sellerId}-${item.id}`}>
-                  <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
-                    <ApprovalMediaPreview item={item} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold uppercase tracking-wider text-blue-700">{item.category || item.shop?.category || 'Marketplace'}</p>
-                    <h3 className="mt-1 text-lg font-semibold text-[#11243e]">{item.name}</h3>
-                    <p className="mt-1 text-sm text-slate-500">{item.shop?.name || item.sellerEmail} · {item.stock} in stock · ${Number(item.price).toFixed(2)}</p>
-                    {item.media?.length > 0 && <p className="mt-1 text-xs font-semibold text-slate-400">{item.media.length} media file{item.media.length === 1 ? '' : 's'}</p>}
-                  </div>
-                  <button className="inline-flex items-center justify-center gap-2 rounded-full bg-[#11243e] px-5 py-3 text-sm font-semibold text-white hover:bg-blue-900" onClick={() => approveItem(item)} type="button">
-                    <ShieldCheck size={17} /> Approve product
-                  </button>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <label className="relative mt-8 block max-w-xl">
-          <span className="sr-only">Search orders by order number</span>
-          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input
-            className="w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-12 text-sm font-medium text-[#11243e] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
-            onChange={(event) => setOrderSearch(event.target.value)}
-            placeholder="Search by order number"
-            type="search"
-            value={orderSearch}
-          />
-          {orderSearch && (
-            <button
-              aria-label="Clear order search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              onClick={() => setOrderSearch('')}
-              type="button"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </label>
-
-        {orderCounts.length > 0 && (
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {orderCounts.map(({ count, status }) => (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4" key={status}>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{status}</p>
-                <p className="mt-2 text-2xl font-semibold text-[#11243e]">{count}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="mt-8 inline-flex rounded-2xl border border-slate-200 bg-white p-1">
+          <button
+            className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${activeTab === 'orders' ? 'bg-[#11243e] text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-[#11243e]'}`}
+            onClick={() => setActiveTab('orders')}
+            type="button"
+          >
+            Order management
+          </button>
+          <button
+            className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${activeTab === 'shops' ? 'bg-[#11243e] text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-[#11243e]'}`}
+            onClick={() => setActiveTab('shops')}
+            type="button"
+          >
+            Shop management
+          </button>
+        </div>
 
         {error && <p className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700" role="alert">{error}</p>}
+
+        {activeTab === 'orders' && (
+          <>
+            <label className="relative mt-8 block max-w-xl">
+              <span className="sr-only">Search orders by order number</span>
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                className="w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-12 text-sm font-medium text-[#11243e] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                onChange={(event) => setOrderSearch(event.target.value)}
+                placeholder="Search by order number"
+                type="search"
+                value={orderSearch}
+              />
+              {orderSearch && (
+                <button
+                  aria-label="Clear order search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  onClick={() => setOrderSearch('')}
+                  type="button"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </label>
+
+            {orderCounts.length > 0 && (
+              <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {orderCounts.map(({ count, status }) => (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4" key={status}>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{status}</p>
+                    <p className="mt-2 text-2xl font-semibold text-[#11243e]">{count}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {loading ? (
           <div className="mt-10 grid min-h-80 place-items-center rounded-3xl border border-slate-200 bg-white">
             <span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" />
           </div>
+        ) : activeTab === 'shops' ? (
+          <ShopManagement
+            lowStockProducts={lowStockProducts}
+            onApprove={approveItem}
+            pendingItems={pendingItems}
+            products={products}
+          />
         ) : orders.length === 0 ? (
           <div className="mt-10 grid min-h-80 place-items-center rounded-3xl border border-dashed border-slate-300 bg-white text-center">
             <div>
@@ -327,6 +326,108 @@ function OrderBoardCard({ onStatusChange, order, saving, statuses }) {
           </div>
         </aside>
       </div>
+    </article>
+  )
+}
+
+function ShopManagement({ lowStockProducts, onApprove, pendingItems, products }) {
+  const totalStock = products.reduce((sum, product) => sum + Number(product.stock || 0), 0)
+
+  return (
+    <div className="mt-8 space-y-6">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Marketplace products</p>
+          <p className="mt-2 text-2xl font-semibold text-[#11243e]">{products.length}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Pending approval</p>
+          <p className="mt-2 text-2xl font-semibold text-[#11243e]">{pendingItems.length}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Units in stock</p>
+          <p className="mt-2 text-2xl font-semibold text-[#11243e]">{totalStock}</p>
+        </div>
+      </div>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
+          <div>
+            <h2 className="text-xl font-semibold text-[#11243e]">Product approvals</h2>
+            <p className="mt-1 text-sm text-slate-500">{pendingItems.length} pending seller submission{pendingItems.length === 1 ? '' : 's'}</p>
+          </div>
+          <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
+            <ShieldCheck size={15} /> Review required
+          </span>
+        </div>
+
+        {pendingItems.length === 0 ? (
+          <div className="grid min-h-40 place-items-center text-center">
+            <div>
+              <PackageCheck className="mx-auto text-slate-400" size={30} />
+              <p className="mt-3 text-sm font-semibold text-[#11243e]">No products waiting for approval</p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-4">
+            {pendingItems.map((item) => (
+              <ProductApprovalCard item={item} key={`${item.sellerId}-${item.id}`} onApprove={onApprove} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
+        <div className="border-b border-slate-200 pb-5">
+          <h2 className="text-xl font-semibold text-[#11243e]">Stock overview</h2>
+          <p className="mt-1 text-sm text-slate-500">Approved marketplace products and current units available.</p>
+        </div>
+        {products.length === 0 ? (
+          <div className="grid min-h-40 place-items-center text-center">
+            <p className="text-sm font-semibold text-slate-500">No approved marketplace products yet.</p>
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3">
+            {products.map((product) => (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm" key={product.id}>
+                <div className="min-w-0">
+                  <p className="font-semibold text-[#11243e]">{product.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{product.category} {product.shopName ? `· ${product.shopName}` : ''}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${Number(product.stock) <= 5 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                  {Number(product.stock || 0)} left
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {lowStockProducts.length > 0 && (
+        <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 sm:p-6">
+          <h2 className="text-xl font-semibold text-rose-800">Low stock</h2>
+          <p className="mt-1 text-sm text-rose-700">{lowStockProducts.length} product{lowStockProducts.length === 1 ? '' : 's'} at 5 units or fewer.</p>
+        </section>
+      )}
+    </div>
+  )
+}
+
+function ProductApprovalCard({ item, onApprove }) {
+  return (
+    <article className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 md:flex-row md:items-center">
+      <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
+        <ApprovalMediaPreview item={item} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-bold uppercase tracking-wider text-blue-700">{item.category || item.shop?.category || 'Marketplace'}</p>
+        <h3 className="mt-1 text-lg font-semibold text-[#11243e]">{item.name}</h3>
+        <p className="mt-1 text-sm text-slate-500">{item.shop?.name || item.sellerEmail} · {item.stock} in stock · ${Number(item.price).toFixed(2)}</p>
+        {item.media?.length > 0 && <p className="mt-1 text-xs font-semibold text-slate-400">{item.media.length} media file{item.media.length === 1 ? '' : 's'}</p>}
+      </div>
+      <button className="inline-flex items-center justify-center gap-2 rounded-full bg-[#11243e] px-5 py-3 text-sm font-semibold text-white hover:bg-blue-900" onClick={() => onApprove(item)} type="button">
+        <ShieldCheck size={17} /> Approve product
+      </button>
     </article>
   )
 }

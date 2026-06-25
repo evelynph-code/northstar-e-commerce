@@ -48,6 +48,52 @@ function parseDataUrl(dataUrl) {
   }
 }
 
+function parseList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean)
+  return String(value || '')
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function parseSpecifications(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((specification) => ({
+        label: String(specification.label || '').trim(),
+        value: String(specification.value || '').trim(),
+      }))
+      .filter((specification) => specification.label && specification.value)
+  }
+
+  return String(value || '')
+    .split('\n')
+    .map((line) => {
+      const [label, ...rest] = line.split(':')
+      return { label: label?.trim() || '', value: rest.join(':').trim() }
+    })
+    .filter((specification) => specification.label && specification.value)
+}
+
+function normalizeProductPayload(body) {
+  const stock = Number(body.stock)
+  const price = Number(body.price)
+
+  return {
+    name: String(body.name || '').trim(),
+    category: String(body.category || '').trim(),
+    description: String(body.description || '').trim(),
+    price,
+    stock,
+    colors: parseList(body.colors).map((name) => ({ name, hex: '#e2e8f0' })),
+    sizes: parseList(body.sizes),
+    features: parseList(body.features),
+    howToUse: String(body.howToUse || '').trim(),
+    careInstructions: String(body.careInstructions || '').trim(),
+    specifications: parseSpecifications(body.specifications),
+  }
+}
+
 async function saveMediaFiles(uid, itemId, files = []) {
   const mediaDirectory = path.join(uploadsRoot, 'sellers', uid, itemId)
   await mkdir(mediaDirectory, { recursive: true })
@@ -70,6 +116,25 @@ async function saveMediaFiles(uid, itemId, files = []) {
   }
 
   return savedFiles
+}
+
+async function normalizeMedia(uid, itemId, files = []) {
+  const existingFiles = files
+    .filter((file) => typeof file.url === 'string' && file.url.startsWith('/uploads/'))
+    .map((file) => ({
+      id: String(file.id || randomUUID()),
+      name: String(file.name || 'Media').slice(0, 160),
+      type: file.type === 'video' ? 'video' : 'image',
+      mimeType: String(file.mimeType || ''),
+      url: file.url,
+    }))
+  const newFiles = await saveMediaFiles(
+    uid,
+    itemId,
+    files.filter((file) => typeof file.url === 'string' && file.url.startsWith('data:')),
+  )
+
+  return [...existingFiles, ...newFiles]
 }
 
 sellerRouter.get('/workspace', requireAuth, async (request, response, next) => {
@@ -128,22 +193,18 @@ sellerRouter.put('/shop', requireAuth, async (request, response, next) => {
 sellerRouter.post('/items', requireAuth, async (request, response, next) => {
   try {
     const itemId = randomUUID()
-    const stock = Number(request.body.stock)
-    const price = Number(request.body.price)
+    const productFields = normalizeProductPayload(request.body)
 
-    if (!request.body.name?.trim() || !Number.isFinite(price) || !Number.isInteger(stock)) {
+    if (!productFields.name || !Number.isFinite(productFields.price) || !Number.isInteger(productFields.stock)) {
       return response.status(400).json({ message: 'Item name, price, and stock are required.' })
     }
 
-    const media = await saveMediaFiles(request.user.uid, itemId, request.body.media)
+    const media = await normalizeMedia(request.user.uid, itemId, request.body.media)
     const item = {
       id: itemId,
       sellerId: request.user.uid,
       sellerEmail: request.user.email,
-      name: String(request.body.name).trim(),
-      category: String(request.body.category || '').trim(),
-      price,
-      stock,
+      ...productFields,
       media,
       approvalStatus: 'pending_review',
       status: 'pending_review',
@@ -154,6 +215,48 @@ sellerRouter.post('/items', requireAuth, async (request, response, next) => {
     await itemReference(request.user.uid, itemId).set(item)
 
     return response.status(201).json({ item: { ...item, createdAt: null, updatedAt: null } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+sellerRouter.get('/items/:itemId', requireAuth, async (request, response, next) => {
+  try {
+    const snapshot = await itemReference(request.user.uid, request.params.itemId).get()
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Item not found.' })
+    }
+
+    return response.json({ item: { id: snapshot.id, ...snapshot.data() } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+sellerRouter.put('/items/:itemId', requireAuth, async (request, response, next) => {
+  try {
+    const reference = itemReference(request.user.uid, request.params.itemId)
+    const snapshot = await reference.get()
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Item not found.' })
+    }
+
+    const productFields = normalizeProductPayload(request.body)
+    if (!productFields.name || !Number.isFinite(productFields.price) || !Number.isInteger(productFields.stock)) {
+      return response.status(400).json({ message: 'Item name, price, and stock are required.' })
+    }
+
+    const media = await normalizeMedia(request.user.uid, request.params.itemId, request.body.media)
+    const updates = {
+      ...productFields,
+      media,
+      approvalStatus: 'pending_review',
+      status: 'pending_review',
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+
+    await reference.set(updates, { merge: true })
+    return response.json({ item: { id: snapshot.id, ...snapshot.data(), ...updates, updatedAt: null } })
   } catch (error) {
     return next(error)
   }
@@ -234,6 +337,12 @@ sellerRouter.patch('/admin/items/:sellerId/:itemId/approve', requireAuth, async 
       price: Number(item.price),
       stock: Number(item.stock),
       media: item.media || [],
+      colors: item.colors || [],
+      sizes: item.sizes || [],
+      features: item.features || [],
+      howToUse: item.howToUse || '',
+      careInstructions: item.careInstructions || '',
+      specifications: item.specifications || [],
       sellerId: request.params.sellerId,
       sellerItemId: request.params.itemId,
       shopName: shop.name || '',

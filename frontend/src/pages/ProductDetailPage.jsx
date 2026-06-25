@@ -38,6 +38,17 @@ function RatingStars({ rating }) {
   )
 }
 
+function formatReviewDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value || ''
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
 function ProductArtwork({ colors, name }) {
   return (
     <div
@@ -409,7 +420,7 @@ function ProductDetailPage() {
                         <RatingStars rating={review.rating} />
                         <h4 className="mt-3 text-lg font-semibold text-[#11243e]">{review.title}</h4>
                       </div>
-                      <time className="text-sm text-slate-400">{review.date}</time>
+                      <time className="text-sm text-slate-400">{formatReviewDate(review.date)}</time>
                     </div>
                     <p className="mt-3 max-w-3xl leading-7 text-slate-600">{review.body}</p>
                     <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">

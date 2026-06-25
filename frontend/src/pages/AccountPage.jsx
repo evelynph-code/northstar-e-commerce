@@ -26,17 +26,6 @@ const sections = [
   { id: 'security', label: 'Security', icon: ShieldCheck },
 ]
 
-function hasCreatedSellerShop(userId) {
-  if (!userId) return false
-
-  try {
-    const workspace = JSON.parse(localStorage.getItem(`northstar-seller-${userId}`) || '{}')
-    return Boolean(workspace.shop?.name?.trim())
-  } catch {
-    return false
-  }
-}
-
 function formatCardNumber(value) {
   return value.replace(/\D/g, '').slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
 }
@@ -69,6 +58,7 @@ function AccountPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [resetSent, setResetSent] = useState(false)
+  const [hasSellerShop, setHasSellerShop] = useState(false)
   const [savedCards, setSavedCards] = useState([])
   const [cardForm, setCardForm] = useState({
     nickname: '',
@@ -118,6 +108,29 @@ function AccountPage() {
     }
 
     loadOrders()
+    return () => controller.abort()
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+
+    const controller = new AbortController()
+
+    async function loadSellerStatus() {
+      try {
+        const token = await user.getIdToken()
+        const response = await fetch('/api/seller/workspace', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        const body = await response.json().catch(() => ({}))
+        if (response.ok) setHasSellerShop(Boolean(body.shop?.name?.trim()))
+      } catch {
+        if (!controller.signal.aborted) setHasSellerShop(false)
+      }
+    }
+
+    loadSellerStatus()
     return () => controller.abort()
   }, [user])
 
@@ -262,7 +275,6 @@ function AccountPage() {
 
   const currentSection = sections.find((section) => section.id === activeSection)
   const CurrentSectionIcon = currentSection.icon
-  const hasSellerShop = hasCreatedSellerShop(user?.uid)
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">

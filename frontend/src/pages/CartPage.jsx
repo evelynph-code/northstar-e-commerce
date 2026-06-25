@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   Trash2,
   Truck,
+  Video,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -21,7 +22,23 @@ const coupons = {
   FREESHIP: { type: 'shipping', value: 0, label: 'Free delivery' },
 }
 
-function CartArtwork({ colors, name }) {
+function CartArtwork({ colors, media, name }) {
+  const firstMedia = media?.[0]
+  if (firstMedia?.type === 'video') {
+    return (
+      <div className="relative size-full">
+        <video className="size-full object-cover" muted src={firstMedia.url} />
+        <span className="absolute bottom-2 left-2 grid size-7 place-items-center rounded-full bg-slate-950/70 text-white">
+          <Video size={14} />
+        </span>
+      </div>
+    )
+  }
+
+  if (firstMedia?.url) {
+    return <img alt={`${name} product media`} className="size-full object-cover" src={firstMedia.url} />
+  }
+
   const palette = colors?.[0] || fallbackColors
 
   return (
@@ -144,7 +161,7 @@ function CartPage() {
                       className="h-24 w-24 flex-none overflow-hidden rounded-xl bg-slate-100 sm:h-28 sm:w-28 sm:rounded-2xl"
                       to={`/products/${item.productId}`}
                     >
-                      <CartArtwork colors={item.galleryColors} name={item.name} />
+                      <CartArtwork colors={item.galleryColors} media={item.media} name={item.name} />
                     </Link>
 
                     <div className="min-w-0 flex-1">

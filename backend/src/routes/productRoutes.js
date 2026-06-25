@@ -9,6 +9,7 @@ productRouter.get('/', async (_request, response, next) => {
     const snapshot = await firestore().collection('products').get()
     const products = snapshot.docs
       .map((document) => ({ id: document.id, ...document.data() }))
+      .filter((product) => !product.approvalStatus || product.approvalStatus === 'approved')
       .sort((first, second) => first.name.localeCompare(second.name))
 
     return response.json({ products })
@@ -114,7 +115,12 @@ productRouter.get('/:productId', async (request, response, next) => {
       return response.status(404).json({ message: 'Product not found.' })
     }
 
-    return response.json({ product: { id: snapshot.id, ...snapshot.data() } })
+    const product = { id: snapshot.id, ...snapshot.data() }
+    if (product.approvalStatus && product.approvalStatus !== 'approved') {
+      return response.status(404).json({ message: 'Product not found.' })
+    }
+
+    return response.json({ product })
   } catch (error) {
     return next(error)
   }

@@ -271,6 +271,7 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
           quantity: item.quantity,
           color: item.color || '',
           size: item.size || '',
+          media: item.media || [],
           price: orderProducts.find((product) => product.productId === item.productId)?.price,
         })),
         delivery,

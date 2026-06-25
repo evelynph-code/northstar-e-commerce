@@ -104,6 +104,7 @@ export function CartProvider({ children }) {
           color,
           size,
           galleryColors: product.galleryColors || [],
+          media: product.media || [],
           quantity: requestedQuantity,
         },
       ]

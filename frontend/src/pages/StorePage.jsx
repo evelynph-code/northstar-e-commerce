@@ -22,17 +22,6 @@ import { inventorySocket } from '../lib/socket.js'
 const productsPerPage = 12
 const sellerCategoryFallbacks = ['Apparel', 'Accessories', 'Footwear', 'Home goods', 'Electronics', 'Beauty']
 
-function hasCreatedSellerShop(userId) {
-  if (!userId) return false
-
-  try {
-    const workspace = JSON.parse(localStorage.getItem(`northstar-seller-${userId}`) || '{}')
-    return Boolean(workspace.shop?.name?.trim())
-  } catch {
-    return false
-  }
-}
-
 function formatSold(value) {
   if (value < 1000) return value.toString()
   return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1).replace('.0', '')}k`
@@ -50,6 +39,20 @@ function RatingStars({ rating }) {
       ))}
     </span>
   )
+}
+
+function ProductMediaPreview({ product }) {
+  const media = product.media?.[0]
+
+  if (media?.type === 'video') {
+    return <video className="size-full object-cover transition duration-500 group-hover:scale-105" muted src={media.url} />
+  }
+
+  if (media?.url) {
+    return <img alt="" className="size-full object-cover transition duration-500 group-hover:scale-105" src={media.url} />
+  }
+
+  return <div className="absolute inset-x-[24%] inset-y-[18%] rounded-[2rem] border border-white/80 bg-white/45 shadow-xl backdrop-blur" />
 }
 
 function FilterPanel({
@@ -158,6 +161,8 @@ function App() {
   const [sellerModalOpen, setSellerModalOpen] = useState(false)
   const [sellerStep, setSellerStep] = useState('confirm')
   const [sellerShop, setSellerShop] = useState({ name: '', category: '' })
+  const [sellerError, setSellerError] = useState('')
+  const [hasSellerShop, setHasSellerShop] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [offersOnly, setOffersOnly] = useState(offersFromUrl)
   const [searchQuery, setSearchQuery] = useState(queryFromUrl)
@@ -213,6 +218,29 @@ function App() {
     return () => cancelAnimationFrame(frame)
   }, [categoryFromUrl, offersFromUrl, queryFromUrl])
 
+  useEffect(() => {
+    if (!user) return
+
+    const controller = new AbortController()
+
+    async function loadSellerStatus() {
+      try {
+        const token = await user.getIdToken()
+        const response = await fetch('/api/seller/workspace', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        const body = await response.json().catch(() => ({}))
+        if (response.ok) setHasSellerShop(Boolean(body.shop?.name?.trim()))
+      } catch {
+        if (!controller.signal.aborted) setHasSellerShop(false)
+      }
+    }
+
+    loadSellerStatus()
+    return () => controller.abort()
+  }, [user])
+
   const categoryOptions = useMemo(() => {
     const counts = inventory.reduce((result, product) => {
       result[product.category] = (result[product.category] || 0) + 1
@@ -227,7 +255,6 @@ function App() {
   const sellerCategoryOptions = categoryOptions.length > 0
     ? categoryOptions.map(({ name }) => name)
     : sellerCategoryFallbacks
-  const hasSellerShop = hasCreatedSellerShop(user?.uid)
 
   const filteredProducts = useMemo(
     () => {
@@ -370,33 +397,32 @@ function App() {
     setSellerModalOpen(true)
     setSellerStep('confirm')
     setSellerShop({ name: '', category: sellerCategoryOptions[0] || '' })
+    setSellerError('')
   }
 
-  const createSellerShop = (event) => {
+  const createSellerShop = async (event) => {
     event.preventDefault()
-    const storageKey = `northstar-seller-${user.uid}`
-    const savedWorkspace = (() => {
-      try {
-        return JSON.parse(localStorage.getItem(storageKey) || '{}')
-      } catch {
-        return {}
-      }
-    })()
-    const nextShop = {
-      ...(savedWorkspace.shop || {}),
-      name: sellerShop.name.trim(),
-      category: sellerShop.category,
-    }
+    setSellerError('')
 
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        shop: nextShop,
-        items: Array.isArray(savedWorkspace.items) ? savedWorkspace.items : [],
-      }),
-    )
-    setSellerModalOpen(false)
-    navigate('/seller')
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch('/api/seller/shop', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(sellerShop),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to create your shop.')
+
+      setHasSellerShop(true)
+      setSellerModalOpen(false)
+      navigate('/seller')
+    } catch (caughtError) {
+      setSellerError(caughtError.message)
+    }
   }
 
   const showOffers = () => {
@@ -656,9 +682,9 @@ function App() {
               <div className="grid gap-x-5 gap-y-9 sm:grid-cols-2 xl:grid-cols-3">
                 {paginatedProducts.map((product) => (
                   <article className="group flex flex-col" key={product.id}>
-                    <div className={`relative aspect-[4/3] overflow-hidden rounded-2xl bg-gradient-to-br ${product.color}`}>
+                    <div className={`relative aspect-[4/3] overflow-hidden rounded-2xl bg-gradient-to-br ${product.color || 'from-slate-100 to-blue-100'}`}>
                       <Link aria-label={`View ${product.name}`} className="absolute inset-0 z-10" to={`/products/${product.id}`} />
-                      <div className="absolute inset-x-[24%] inset-y-[18%] rounded-[2rem] border border-white/80 bg-white/45 shadow-xl backdrop-blur" />
+                      <ProductMediaPreview product={product} />
                       {product.originalPrice && (
                         <span className="absolute left-4 top-4 rounded-full bg-blue-700 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
                           {Math.round((1 - product.price / product.originalPrice) * 100)}% off
@@ -829,6 +855,7 @@ function App() {
                     {sellerCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </label>
+                {sellerError && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{sellerError}</p>}
                 <div className="flex flex-wrap justify-end gap-3 pt-1">
                   <button
                     className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"

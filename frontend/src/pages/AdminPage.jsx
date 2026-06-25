@@ -8,6 +8,8 @@ import {
   Phone,
   RefreshCw,
   Search,
+  ShieldCheck,
+  Video,
   X,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
@@ -24,6 +26,7 @@ const statusStyles = {
 function AdminPage() {
   const { authLoading, profile, user } = useAuth()
   const [orders, setOrders] = useState([])
+  const [pendingItems, setPendingItems] = useState([])
   const [statuses, setStatuses] = useState([])
   const [loading, setLoading] = useState(true)
   const [savingOrderId, setSavingOrderId] = useState('')
@@ -63,7 +66,15 @@ function AdminPage() {
         const body = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(body.message || 'Unable to load orders.')
 
+        const pendingResponse = await fetch('/api/seller/admin/items', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        const pendingBody = await pendingResponse.json().catch(() => ({}))
+        if (!pendingResponse.ok) throw new Error(pendingBody.message || 'Unable to load seller submissions.')
+
         setOrders(body.orders || [])
+        setPendingItems(pendingBody.items || [])
         setStatuses(body.statuses || [])
       } catch (caughtError) {
         if (caughtError.name !== 'AbortError') setError(caughtError.message)
@@ -104,6 +115,24 @@ function AdminPage() {
     }
   }
 
+  const approveItem = async (item) => {
+    setError('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/seller/admin/items/${item.sellerId}/${item.id}/approve`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to approve product.')
+
+      setPendingItems((current) => current.filter((candidate) => candidate.id !== item.id))
+    } catch (caughtError) {
+      setError(caughtError.message)
+    }
+  }
+
   if (authLoading) {
     return <main className="grid min-h-screen place-items-center bg-slate-50"><span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" /></main>
   }
@@ -126,13 +155,53 @@ function AdminPage() {
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
             <p className="text-sm font-semibold text-blue-700">Admin</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.03em] text-[#11243e] sm:text-4xl">Order management</h1>
-            <p className="mt-2 text-sm text-slate-500">Review orders and update fulfillment status.</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.03em] text-[#11243e] sm:text-4xl">Management board</h1>
+            <p className="mt-2 text-sm text-slate-500">Review seller products, orders, and fulfillment status.</p>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
             <ClipboardList size={17} /> {filteredOrders.length} orders
           </span>
         </div>
+
+        <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
+            <div>
+              <h2 className="text-xl font-semibold text-[#11243e]">Product approvals</h2>
+              <p className="mt-1 text-sm text-slate-500">{pendingItems.length} pending seller submission{pendingItems.length === 1 ? '' : 's'}</p>
+            </div>
+            <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
+              <ShieldCheck size={15} /> Review required
+            </span>
+          </div>
+
+          {pendingItems.length === 0 ? (
+            <div className="grid min-h-40 place-items-center text-center">
+              <div>
+                <PackageCheck className="mx-auto text-slate-400" size={30} />
+                <p className="mt-3 text-sm font-semibold text-[#11243e]">No products waiting for approval</p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4">
+              {pendingItems.map((item) => (
+                <article className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 md:flex-row md:items-center" key={`${item.sellerId}-${item.id}`}>
+                  <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
+                    <ApprovalMediaPreview item={item} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-700">{item.category || item.shop?.category || 'Marketplace'}</p>
+                    <h3 className="mt-1 text-lg font-semibold text-[#11243e]">{item.name}</h3>
+                    <p className="mt-1 text-sm text-slate-500">{item.shop?.name || item.sellerEmail} · {item.stock} in stock · ${Number(item.price).toFixed(2)}</p>
+                    {item.media?.length > 0 && <p className="mt-1 text-xs font-semibold text-slate-400">{item.media.length} media file{item.media.length === 1 ? '' : 's'}</p>}
+                  </div>
+                  <button className="inline-flex items-center justify-center gap-2 rounded-full bg-[#11243e] px-5 py-3 text-sm font-semibold text-white hover:bg-blue-900" onClick={() => approveItem(item)} type="button">
+                    <ShieldCheck size={17} /> Approve product
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <label className="relative mt-8 block max-w-xl">
           <span className="sr-only">Search orders by order number</span>
@@ -260,6 +329,27 @@ function OrderBoardCard({ onStatusChange, order, saving, statuses }) {
       </div>
     </article>
   )
+}
+
+function ApprovalMediaPreview({ item }) {
+  const media = item.media?.[0]
+
+  if (media?.type === 'video') {
+    return (
+      <div className="relative size-full">
+        <video className="size-full object-cover" muted src={media.url} />
+        <span className="absolute bottom-2 left-2 grid size-7 place-items-center rounded-full bg-slate-950/70 text-white">
+          <Video size={14} />
+        </span>
+      </div>
+    )
+  }
+
+  if (media?.url) {
+    return <img alt="" className="size-full object-cover" src={media.url} />
+  }
+
+  return <PackageCheck size={26} />
 }
 
 export default AdminPage

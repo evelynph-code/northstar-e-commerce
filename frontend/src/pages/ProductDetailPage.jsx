@@ -55,6 +55,18 @@ function ProductArtwork({ colors, name }) {
   )
 }
 
+function ProductMedia({ media, fallbackColors, name }) {
+  if (media?.type === 'video') {
+    return <video className="size-full object-cover" controls muted src={media.url} />
+  }
+
+  if (media?.url) {
+    return <img alt={`${name} product media`} className="size-full object-cover" src={media.url} />
+  }
+
+  return <ProductArtwork colors={fallbackColors} name={name} />
+}
+
 function ProductDetailPage() {
   const { productId } = useParams()
   const { authLoading, profile, user } = useAuth()
@@ -126,7 +138,7 @@ function ProductDetailPage() {
   }, [productId])
 
   const gallery = useMemo(
-    () => product?.galleryColors?.length ? product.galleryColors : fallbackGallery,
+    () => product?.media?.length ? product.media : product?.galleryColors?.length ? product.galleryColors : fallbackGallery,
     [product],
   )
 
@@ -206,20 +218,20 @@ function ProductDetailPage() {
       <section className="page-container grid min-w-0 gap-10 pb-20 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] lg:gap-12">
         <div className="grid min-w-0 max-w-full gap-4 sm:grid-cols-[72px_minmax(0,1fr)] xl:grid-cols-[88px_minmax(0,1fr)]">
           <div className="order-2 flex min-w-0 max-w-full gap-3 overflow-x-auto pb-1 sm:order-1 sm:flex-col sm:overflow-visible">
-            {gallery.map((colors, index) => (
+            {gallery.map((entry, index) => (
               <button
                 aria-label={`View product image ${index + 1}`}
                 className={`aspect-square w-[72px] shrink-0 overflow-hidden rounded-xl border-2 transition xl:w-20 ${selectedImage === index ? 'border-blue-600' : 'border-transparent hover:border-slate-300'}`}
-                key={`${colors.start}-${index}`}
+                key={`${entry.id || entry.start}-${index}`}
                 onClick={() => setSelectedImage(index)}
                 type="button"
               >
-                <ProductArtwork colors={colors} name={product.name} />
+                <ProductMedia fallbackColors={entry} media={entry.url ? entry : null} name={product.name} />
               </button>
             ))}
           </div>
           <div className="order-1 aspect-square w-full min-w-0 max-w-full overflow-hidden rounded-3xl bg-slate-100 sm:order-2 xl:rounded-[2rem]">
-            <ProductArtwork colors={gallery[selectedImage]} name={product.name} />
+            <ProductMedia fallbackColors={gallery[selectedImage]} media={gallery[selectedImage]?.url ? gallery[selectedImage] : null} name={product.name} />
           </div>
         </div>
 
@@ -248,7 +260,7 @@ function ProductDetailPage() {
           </div>
           <p className="mt-6 max-w-full break-words leading-7 text-slate-600">{product.description || `A thoughtfully selected ${product.category.toLowerCase()} essential, designed for reliable everyday use and a clean modern feel.`}</p>
 
-          {product.colors?.length > 0 && (
+          {!product.media?.length && product.colors?.length > 0 && (
             <fieldset className="mt-8">
               <legend className="font-semibold text-[#11243e]">Color: <span className="font-normal text-slate-500">{selectedColor}</span></legend>
               <div className="mt-3 flex flex-wrap gap-3">

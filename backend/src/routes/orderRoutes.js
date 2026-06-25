@@ -6,7 +6,7 @@ import { broadcastStockUpdate } from '../socket.js'
 
 const orderRouter = Router()
 
-const orderStatuses = ['confirmed', 'packing', 'shipped', 'delivered', 'cancelled']
+const orderStatuses = ['confirmed', 'packing', 'shipped', 'delivered', 'cancelled', 'returned']
 const buyerCancellableStatuses = ['confirmed', 'packing']
 
 async function requireAdminUser(request, response) {
@@ -180,6 +180,146 @@ orderRouter.patch('/:orderId/cancel', requireAuth, async (request, response, nex
 
     result.stockUpdates.forEach((stockUpdate) => broadcastStockUpdate(stockUpdate))
     return response.json({ order: result.order })
+  } catch (error) {
+    if (error.status) return response.status(error.status).json({ message: error.message })
+    return next(error)
+  }
+})
+
+orderRouter.post('/:orderId/items/:productId/review', requireAuth, async (request, response, next) => {
+  try {
+    const rating = Number(request.body.rating)
+    const title = String(request.body.title || '').trim()
+    const body = String(request.body.body || '').trim()
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return response.status(400).json({ message: 'Choose a rating from 1 to 5 stars.' })
+    }
+
+    if (!title || !body) {
+      return response.status(400).json({ message: 'Add a review title and comment.' })
+    }
+
+    const database = firestore()
+    const orderReference = database.collection('orders').doc(request.params.orderId)
+    const productReference = database.collection('products').doc(request.params.productId)
+    const reviewReference = productReference
+      .collection('reviews')
+      .doc(`${request.params.orderId}_${request.user.uid}`)
+
+    const result = await database.runTransaction(async (transaction) => {
+      const [orderSnapshot, productSnapshot, reviewSnapshot] = await Promise.all([
+        transaction.get(orderReference),
+        transaction.get(productReference),
+        transaction.get(reviewReference),
+      ])
+
+      if (!orderSnapshot.exists) {
+        const error = new Error('Order not found.')
+        error.status = 404
+        throw error
+      }
+
+      if (!productSnapshot.exists) {
+        const error = new Error('Product not found.')
+        error.status = 404
+        throw error
+      }
+
+      if (reviewSnapshot.exists) {
+        const error = new Error('You have already reviewed this item.')
+        error.status = 409
+        throw error
+      }
+
+      const order = orderSnapshot.data()
+      if (order.userId !== request.user.uid) {
+        const error = new Error('You can only review your own orders.')
+        error.status = 403
+        throw error
+      }
+
+      if (order.status !== 'delivered') {
+        const error = new Error('Reviews are available after delivery.')
+        error.status = 409
+        throw error
+      }
+
+      const items = order.items || []
+      const matchingItem = items.find((item) => item.productId === request.params.productId)
+      if (!matchingItem) {
+        const error = new Error('This product is not part of the order.')
+        error.status = 404
+        throw error
+      }
+
+      if (matchingItem.reviewed) {
+        const error = new Error('You have already reviewed this item.')
+        error.status = 409
+        throw error
+      }
+
+      const product = productSnapshot.data()
+      const currentReviews = Number(product.reviews) || 0
+      const currentRating = Number(product.rating) || 0
+      const nextReviews = currentReviews + 1
+      const nextRating = ((currentRating * currentReviews) + rating) / nextReviews
+      const reviewedAt = new Date().toISOString()
+      const nextItems = items.map((item) =>
+        item.productId === request.params.productId
+          ? { ...item, reviewed: true, reviewRating: rating, reviewedAt }
+          : item,
+      )
+      const orderReviewed = nextItems.every((item) => item.reviewed)
+      const review = {
+        author: request.user.name || request.user.email || 'Verified customer',
+        body,
+        createdAt: FieldValue.serverTimestamp(),
+        date: reviewedAt,
+        orderId: request.params.orderId,
+        productId: request.params.productId,
+        rating,
+        title,
+        userId: request.user.uid,
+        verified: true,
+      }
+
+      transaction.set(reviewReference, review)
+      transaction.update(productReference, {
+        rating: Number(nextRating.toFixed(2)),
+        reviews: nextReviews,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+
+      if (product.sellerId && product.sellerItemId) {
+        transaction.update(
+          database.collection('sellers').doc(product.sellerId).collection('items').doc(product.sellerItemId),
+          {
+            rating: Number(nextRating.toFixed(2)),
+            reviews: nextReviews,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+        )
+      }
+
+      transaction.update(orderReference, {
+        items: nextItems,
+        reviewed: orderReviewed,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+
+      return {
+        order: {
+          id: orderSnapshot.id,
+          ...order,
+          items: nextItems,
+          reviewed: orderReviewed,
+        },
+        review: { ...review, createdAt: null },
+      }
+    })
+
+    return response.status(201).json(result)
   } catch (error) {
     if (error.status) return response.status(error.status).json({ message: error.message })
     return next(error)

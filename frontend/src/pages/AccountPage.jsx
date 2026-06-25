@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
   CircleUserRound,
@@ -11,6 +11,7 @@ import {
   Save,
   ShieldCheck,
   ShoppingBag,
+  Star,
   Store,
   XCircle,
 } from 'lucide-react'
@@ -24,6 +25,13 @@ const sections = [
   { id: 'orders', label: 'Orders', icon: Package },
   { id: 'payment', label: 'Payment', icon: CreditCard },
   { id: 'security', label: 'Security', icon: ShieldCheck },
+]
+
+const orderGroups = [
+  { id: 'active', title: 'Confirmed / Packing', statuses: ['confirmed', 'packing'] },
+  { id: 'inTransit', title: 'Shipped / Delivered', statuses: ['shipped', 'delivered'] },
+  { id: 'closed', title: 'Cancelled / Returned', statuses: ['cancelled', 'returned'] },
+  { id: 'reviewed', title: 'Reviewed', statuses: [] },
 ]
 
 function formatCardNumber(value) {
@@ -67,6 +75,20 @@ function AccountPage() {
     number: '',
     expiry: '',
   })
+  const [activeOrderTab, setActiveOrderTab] = useState(orderGroups[0].id)
+  const [reviewingItem, setReviewingItem] = useState(null)
+  const [reviewForm, setReviewForm] = useState({ body: '', rating: 5, title: '' })
+
+  const groupedOrders = useMemo(() => {
+    const reviewed = orders.filter((order) => order.reviewed)
+    return orderGroups.map((group) => ({
+      ...group,
+      orders: group.id === 'reviewed'
+        ? reviewed
+        : orders.filter((order) => !order.reviewed && group.statuses.includes(order.status)),
+    }))
+  }, [orders])
+  const activeOrderGroup = groupedOrders.find((group) => group.id === activeOrderTab) || groupedOrders[0]
 
   useEffect(() => {
     if (!profile) return
@@ -257,6 +279,47 @@ function AccountPage() {
     }
   }
 
+  const startReview = (order, item) => {
+    setError('')
+    setMessage('')
+    setReviewingItem({ item, orderId: order.id })
+    setReviewForm({ body: '', rating: 5, title: '' })
+  }
+
+  const submitReview = async (event) => {
+    event.preventDefault()
+    if (!reviewingItem) return
+
+    setError('')
+    setMessage('')
+    setSaving(true)
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${reviewingItem.orderId}/items/${reviewingItem.item.productId}/review`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reviewForm),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to save your review.')
+
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order.id === body.order.id ? body.order : order)),
+      )
+      setReviewingItem(null)
+      setReviewForm({ body: '', rating: 5, title: '' })
+      setMessage('Thanks for reviewing your order.')
+    } catch (caughtError) {
+      setError(caughtError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const sendReset = async () => {
     setError('')
     try {
@@ -431,11 +494,26 @@ function AccountPage() {
                     <div><Package className="mx-auto text-slate-400" size={30} /><h3 className="mt-4 font-semibold text-[#11243e]">No orders yet</h3><p className="mt-1 text-sm text-slate-500">Completed orders will appear here.</p><Link className="mt-5 inline-flex font-semibold text-blue-700" to="/">Start shopping</Link></div>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {orders.map((order) => <OrderCard key={order.id} onCancel={cancelOrder} order={order} />)}
-                  </div>
+                  <OrdersTabs
+                    activeGroup={activeOrderGroup}
+                    groups={groupedOrders}
+                    onCancel={cancelOrder}
+                    onReview={startReview}
+                    onTabChange={setActiveOrderTab}
+                  />
                 )}
               </div>
+            )}
+
+            {reviewingItem && (
+              <ReviewDialog
+                form={reviewForm}
+                item={reviewingItem.item}
+                onChange={setReviewForm}
+                onClose={() => setReviewingItem(null)}
+                onSubmit={submitReview}
+                saving={saving}
+              />
             )}
 
             {activeSection === 'security' && (
@@ -467,16 +545,79 @@ function SaveButton({ saving }) {
   return <button className="mt-7 inline-flex items-center gap-2 rounded-full bg-[#11243e] px-6 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={saving} type="submit"><Save size={17} />{saving ? 'Saving…' : 'Save changes'}</button>
 }
 
-function OrderCard({ onCancel, order }) {
+function OrdersTabs({ activeGroup, groups, onCancel, onReview, onTabChange }) {
+  return (
+    <section>
+      <div className="overflow-x-auto">
+        <div className="inline-flex min-w-full gap-2 rounded-2xl bg-slate-100 p-1">
+          {groups.map((group) => (
+            <button
+              className={`flex min-w-max flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                activeGroup.id === group.id
+                  ? 'bg-white text-[#11243e] shadow-sm'
+                  : 'text-slate-500 hover:bg-white/70 hover:text-[#11243e]'
+              }`}
+              key={group.id}
+              onClick={() => onTabChange(group.id)}
+              type="button"
+            >
+              {group.title}
+              <span className={`rounded-full px-2 py-0.5 text-[11px] ${
+                activeGroup.id === group.id ? 'bg-blue-50 text-blue-700' : 'bg-white text-slate-500'
+              }`}>
+                {group.orders.length}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeGroup.orders.length === 0 ? (
+        <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">No orders in this status.</div>
+      ) : (
+        <div className="mt-5 space-y-4">
+          {activeGroup.orders.map((order) => <OrderCard key={order.id} onCancel={onCancel} onReview={onReview} order={order} />)}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function OrderCard({ onCancel, onReview, order }) {
   const createdAt = order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000) : null
   const canCancel = ['confirmed', 'packing'].includes(order.status)
+  const canReview = order.status === 'delivered'
   return (
     <article className="rounded-2xl border border-slate-200 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
         <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Order {order.id}</p><p className="mt-1 text-sm text-slate-500">{createdAt ? createdAt.toLocaleDateString() : 'Processing date'}</p></div>
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold capitalize text-emerald-700">{order.status}</span>
       </div>
-      <div className="mt-4 space-y-2">{order.items?.map((item, index) => <div className="flex justify-between gap-4 text-sm" key={`${item.productId}-${index}`}><span className="text-slate-600">{item.quantity}× {item.name}</span><span className="font-medium">${(item.price * item.quantity).toFixed(2)}</span></div>)}</div>
+      <div className="mt-4 space-y-3">
+        {order.items?.map((item, index) => (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm" key={`${item.productId}-${index}`}>
+            <span className="text-slate-600">{item.quantity}× {item.name}</span>
+            <div className="flex items-center gap-3">
+              <span className="font-medium">${(item.price * item.quantity).toFixed(2)}</span>
+              {canReview && (
+                item.reviewed ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <Star className="fill-emerald-600" size={13} /> Reviewed
+                  </span>
+                ) : (
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                    onClick={() => onReview(order, item)}
+                    type="button"
+                  >
+                    <Star size={13} /> Rate item
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
         <span className="font-semibold text-[#11243e]">Total</span>
         <span className="font-semibold text-[#11243e]">${order.totals?.total?.toFixed(2)}</span>
@@ -487,6 +628,75 @@ function OrderCard({ onCancel, order }) {
         )}
       </div>
     </article>
+  )
+}
+
+function ReviewDialog({ form, item, onChange, onClose, onSubmit, saving }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-5">
+      <form className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7" onSubmit={onSubmit}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-blue-700">Rate your item</p>
+            <h3 className="mt-1 text-2xl font-semibold text-[#11243e]">{item.name}</h3>
+          </div>
+          <button className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={onClose} type="button">
+            <XCircle size={20} />
+          </button>
+        </div>
+
+        <div className="mt-6">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Rating</span>
+          <StarRating
+            onChange={(rating) => onChange((current) => ({ ...current, rating }))}
+            value={form.rating}
+          />
+        </div>
+
+        <div className="mt-5">
+          <Field
+            label="Review title"
+            onChange={(event) => onChange((current) => ({ ...current, title: event.target.value }))}
+            value={form.title}
+          />
+        </div>
+
+        <label className="mt-5 block">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Your review</span>
+          <textarea
+            className="min-h-32 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+            onChange={(event) => onChange((current) => ({ ...current, body: event.target.value }))}
+            required
+            value={form.body}
+          />
+        </label>
+
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={onClose} type="button">Cancel</button>
+          <button className="inline-flex items-center gap-2 rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60" disabled={saving} type="submit">
+            <Star size={16} /> {saving ? 'Saving...' : 'Submit review'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function StarRating({ onChange, value }) {
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((rating) => (
+        <button
+          aria-label={`${rating} star${rating === 1 ? '' : 's'}`}
+          className="rounded-full p-1 text-blue-600 hover:bg-blue-50"
+          key={rating}
+          onClick={() => onChange(rating)}
+          type="button"
+        >
+          <Star className={rating <= value ? 'fill-blue-600' : 'fill-slate-200 text-slate-200'} size={28} />
+        </button>
+      ))}
+    </div>
   )
 }
 

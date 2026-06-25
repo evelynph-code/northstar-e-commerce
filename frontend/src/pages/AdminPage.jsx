@@ -21,6 +21,7 @@ const statusStyles = {
   shipped: 'bg-indigo-50 text-indigo-700',
   delivered: 'bg-emerald-50 text-emerald-700',
   cancelled: 'bg-rose-50 text-rose-700',
+  returned: 'bg-slate-100 text-slate-700',
 }
 
 function AdminPage() {

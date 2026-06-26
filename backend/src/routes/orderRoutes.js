@@ -8,6 +8,17 @@ const orderRouter = Router()
 
 const orderStatuses = ['confirmed', 'packing', 'shipped', 'delivered', 'cancelled', 'returned']
 const buyerCancellableStatuses = ['confirmed', 'packing']
+const returnReasons = {
+  damaged_or_defective: 'Item arrived damaged or defective',
+  incorrect_item: 'Incorrect item, size, or color received',
+  incorrect_item_details: 'Incorrect item, size, or color received',
+  incorrect_size: 'Incorrect item, size, or color received',
+  incorrect_color: 'Incorrect item, size, or color received',
+  delivery_address_issue: 'Delivery address issue',
+  no_longer_needed: 'Item is no longer needed',
+  other: 'Other',
+}
+const returnRequestStatuses = ['approved', 'declined']
 
 async function requireAdminUser(request, response) {
   const snapshot = await firestore().collection('users').doc(request.user.uid).get()
@@ -91,6 +102,170 @@ orderRouter.patch('/:orderId/status', requireAuth, async (request, response, nex
     )
 
     return response.json({ order: { id: snapshot.id, ...snapshot.data(), status } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+orderRouter.post('/:orderId/return', requireAuth, async (request, response, next) => {
+  try {
+    const reason = String(request.body.reason || '').trim()
+    const notes = String(request.body.notes || '').trim()
+    const itemIndexes = Array.isArray(request.body.itemIndexes)
+      ? [...new Set(request.body.itemIndexes.map((index) => Number(index)).filter(Number.isInteger))]
+      : []
+
+    if (!returnReasons[reason]) {
+      return response.status(400).json({ message: 'Choose a valid return reason.' })
+    }
+
+    if (reason === 'other' && !notes) {
+      return response.status(400).json({ message: 'Add a note for this return reason.' })
+    }
+
+    if (itemIndexes.length === 0) {
+      return response.status(400).json({ message: 'Select at least one item to return.' })
+    }
+
+    const orderReference = firestore().collection('orders').doc(request.params.orderId)
+    const snapshot = await orderReference.get()
+
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Order not found.' })
+    }
+
+    const order = snapshot.data()
+    if (order.userId !== request.user.uid) {
+      return response.status(403).json({ message: 'You can only request returns for your own orders.' })
+    }
+
+    if (order.status !== 'delivered') {
+      return response.status(409).json({ message: 'Returns can be requested after delivery.' })
+    }
+
+    if (order.returnRequest?.status === 'pending_review') {
+      return response.status(409).json({ message: 'This return request is already under review.' })
+    }
+
+    if (['approved', 'declined'].includes(order.returnRequest?.status)) {
+      return response.status(409).json({ message: 'This order already has a return decision.' })
+    }
+
+    const orderItems = order.items || []
+    const returnItems = itemIndexes
+      .map((itemIndex) => ({ item: orderItems[itemIndex], itemIndex }))
+      .filter(({ item }) => item)
+      .map(({ item, itemIndex }) => ({
+        itemIndex,
+        name: item.name,
+        price: Number(item.price || 0),
+        productId: item.productId,
+        quantity: Number(item.quantity || 0),
+        color: item.color || '',
+        size: item.size || '',
+      }))
+
+    if (returnItems.length !== itemIndexes.length) {
+      return response.status(400).json({ message: 'One or more selected items are not part of this order.' })
+    }
+
+    const returnRequest = {
+      items: returnItems,
+      reason,
+      reasonLabel: returnReasons[reason],
+      notes,
+      requestedAt: new Date().toISOString(),
+      requestedBy: request.user.uid,
+      status: 'pending_review',
+    }
+
+    await orderReference.set(
+      {
+        returnRequest,
+        updatedAt: FieldValue.serverTimestamp(),
+        statusHistory: FieldValue.arrayUnion({
+          status: 'return_requested',
+          updatedAt: returnRequest.requestedAt,
+          updatedBy: request.user.uid,
+        }),
+      },
+      { merge: true },
+    )
+
+    return response.status(201).json({
+      order: { id: snapshot.id, ...order, returnRequest },
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+orderRouter.patch('/:orderId/return', requireAuth, async (request, response, next) => {
+  try {
+    if (!(await requireAdminUser(request, response))) return
+
+    const status = String(request.body.status || '').trim()
+    const adminNotes = String(request.body.adminNotes || '').trim()
+    if (!returnRequestStatuses.includes(status)) {
+      return response.status(400).json({ message: 'Choose a valid return decision.' })
+    }
+
+    const orderReference = firestore().collection('orders').doc(request.params.orderId)
+    const snapshot = await orderReference.get()
+
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Order not found.' })
+    }
+
+    const order = snapshot.data()
+    if (order.returnRequest?.status !== 'pending_review') {
+      return response.status(409).json({ message: 'This order does not have a pending return request.' })
+    }
+
+    const reviewedAt = new Date().toISOString()
+    const returnRequest = {
+      ...order.returnRequest,
+      adminNotes,
+      reviewedAt,
+      reviewedBy: request.user.uid,
+      status,
+    }
+    const returnedItemIndexes = new Set((returnRequest.items || []).map((item) => Number(item.itemIndex)))
+    const orderStatus =
+      status === 'approved' && returnedItemIndexes.size > 0 && returnedItemIndexes.size === (order.items || []).length
+        ? 'returned'
+        : order.status
+
+    await orderReference.set(
+      {
+        payment: {
+          ...(order.payment || {}),
+          refundStatus: status === 'approved' ? 'approved_pending_processing' : 'not_approved',
+        },
+        returnRequest,
+        status: orderStatus,
+        updatedAt: FieldValue.serverTimestamp(),
+        statusHistory: FieldValue.arrayUnion({
+          status: status === 'approved' ? 'return_approved' : 'return_declined',
+          updatedAt: reviewedAt,
+          updatedBy: request.user.uid,
+        }),
+      },
+      { merge: true },
+    )
+
+    return response.json({
+      order: {
+        id: snapshot.id,
+        ...order,
+        payment: {
+          ...(order.payment || {}),
+          refundStatus: status === 'approved' ? 'approved_pending_processing' : 'not_approved',
+        },
+        returnRequest,
+        status: orderStatus,
+      },
+    })
   } catch (error) {
     return next(error)
   }

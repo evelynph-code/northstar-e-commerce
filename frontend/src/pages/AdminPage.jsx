@@ -55,6 +55,10 @@ function AdminPage() {
     () => products.filter((product) => Number(product.stock) <= 5),
     [products],
   )
+  const pendingReturnCount = useMemo(
+    () => orders.filter((order) => order.returnRequest?.status === 'pending_review').length,
+    [orders],
+  )
 
   useEffect(() => {
     if (!user || !profile?.isAdmin) return
@@ -145,6 +149,35 @@ function AdminPage() {
     }
   }
 
+  const reviewReturnRequest = async (orderId, status, adminNotes) => {
+    const currentOrders = orders
+    setSavingOrderId(orderId)
+    setError('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${orderId}/return`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ adminNotes, status }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to update the return request.')
+
+      setOrders((existingOrders) =>
+        existingOrders.map((order) => (order.id === body.order.id ? body.order : order)),
+      )
+    } catch (caughtError) {
+      setOrders(currentOrders)
+      setError(caughtError.message)
+    } finally {
+      setSavingOrderId('')
+    }
+  }
+
   if (authLoading) {
     return <main className="grid min-h-screen place-items-center bg-slate-50"><span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" /></main>
   }
@@ -226,6 +259,10 @@ function AdminPage() {
                     <p className="mt-2 text-2xl font-semibold text-[#11243e]">{count}</p>
                   </div>
                 ))}
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Return review</p>
+                  <p className="mt-2 text-2xl font-semibold text-amber-900">{pendingReturnCount}</p>
+                </div>
               </div>
             )}
           </>
@@ -264,6 +301,7 @@ function AdminPage() {
               <OrderBoardCard
                 key={order.id}
                 onStatusChange={updateStatus}
+                onReturnReview={reviewReturnRequest}
                 order={order}
                 saving={savingOrderId === order.id}
                 statuses={statuses}
@@ -276,10 +314,13 @@ function AdminPage() {
   )
 }
 
-function OrderBoardCard({ onStatusChange, order, saving, statuses }) {
+function OrderBoardCard({ onReturnReview, onStatusChange, order, saving, statuses }) {
+  const [adminNotes, setAdminNotes] = useState('')
   const createdAt = order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000) : null
   const delivery = order.delivery || {}
   const total = Number(order.totals?.total || 0)
+  const returnRequest = order.returnRequest
+  const returnPending = returnRequest?.status === 'pending_review'
 
   return (
     <article className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
@@ -327,8 +368,71 @@ function OrderBoardCard({ onStatusChange, order, saving, statuses }) {
           </div>
         </aside>
       </div>
+      {returnRequest && (
+        <section className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-amber-900">Return request: {formatReturnStatus(returnRequest.status)}</p>
+              {returnRequest.items?.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-amber-800">Items requested</p>
+                  {returnRequest.items.map((item) => (
+                    <p className="text-amber-800" key={`${item.productId}-${item.itemIndex}`}>
+                      {item.quantity}x {item.name}{[item.color, item.size].filter(Boolean).length > 0 ? ` (${[item.color, item.size].filter(Boolean).join(' / ')})` : ''}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1 text-amber-800">{returnRequest.reasonLabel}</p>
+              {returnRequest.notes && <p className="mt-2 leading-6 text-amber-800">{returnRequest.notes}</p>}
+              {returnRequest.adminNotes && <p className="mt-2 border-t border-amber-200 pt-2 text-amber-800">Admin note: {returnRequest.adminNotes}</p>}
+            </div>
+            {returnPending && <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700">Refund eligibility review</span>}
+          </div>
+
+          {returnPending && (
+            <div className="mt-4 border-t border-amber-200 pt-4">
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-amber-800">Admin notes</span>
+                <textarea
+                  className="min-h-24 w-full resize-none rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-[#11243e] outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
+                  onChange={(event) => setAdminNotes(event.target.value)}
+                  placeholder="Record refund eligibility notes."
+                  value={adminNotes}
+                />
+              </label>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button
+                  className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  disabled={saving}
+                  onClick={() => onReturnReview(order.id, 'approved', adminNotes)}
+                  type="button"
+                >
+                  Approve refund review
+                </button>
+                <button
+                  className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 disabled:opacity-60"
+                  disabled={saving}
+                  onClick={() => onReturnReview(order.id, 'declined', adminNotes)}
+                  type="button"
+                >
+                  Decline request
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </article>
   )
+}
+
+function formatReturnStatus(status) {
+  return {
+    approved: 'Approved for refund review',
+    declined: 'Not eligible for refund',
+    pending_review: 'Pending admin review',
+  }[status] || 'Pending admin review'
 }
 
 function ShopManagement({ lowStockProducts, onApprove, pendingItems, products }) {

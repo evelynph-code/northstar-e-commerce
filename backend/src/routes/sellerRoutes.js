@@ -190,6 +190,32 @@ sellerRouter.put('/shop', requireAuth, async (request, response, next) => {
   }
 })
 
+sellerRouter.get('/public/:sellerId', async (request, response, next) => {
+  try {
+    const [sellerSnapshot, productsSnapshot] = await Promise.all([
+      sellerReference(request.params.sellerId).get(),
+      firestore()
+        .collection('products')
+        .where('sellerId', '==', request.params.sellerId)
+        .get(),
+    ])
+
+    if (!sellerSnapshot.exists) {
+      return response.status(404).json({ message: 'Shop not found.' })
+    }
+
+    const shop = sellerSnapshot.data().shop || {}
+    const products = productsSnapshot.docs
+      .map((document) => ({ id: document.id, ...document.data() }))
+      .filter((product) => !product.approvalStatus || product.approvalStatus === 'approved')
+      .sort((first, second) => first.name.localeCompare(second.name))
+
+    return response.json({ shop, products })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 sellerRouter.post('/items', requireAuth, async (request, response, next) => {
   try {
     const itemId = randomUUID()

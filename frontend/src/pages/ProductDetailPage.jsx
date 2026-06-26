@@ -10,6 +10,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   Star,
+  Store,
   Truck,
   UserRound,
 } from 'lucide-react'
@@ -257,6 +258,11 @@ function ProductDetailPage() {
         <div className="min-w-0 max-w-full lg:py-3">
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-700">{product.category}</p>
           <h1 className="mt-3 break-words text-4xl font-semibold leading-tight tracking-[-0.04em] text-[#11243e] sm:text-5xl">{product.name}</h1>
+          {product.sellerId && product.shopName && (
+            <Link className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-blue-700" to={`/shops/${product.sellerId}`}>
+              <Store size={16} /> {product.shopName}
+            </Link>
+          )}
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <RatingStars rating={product.rating} />
             <span className="font-semibold text-slate-700">{product.rating}</span>

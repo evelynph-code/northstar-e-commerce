@@ -33,6 +33,13 @@ const orderGroups = [
   { id: 'closed', title: 'Cancelled / Returned', statuses: ['cancelled', 'returned'] },
   { id: 'reviewed', title: 'Reviewed', statuses: [] },
 ]
+const returnReasons = [
+  { label: 'Item arrived damaged or defective', value: 'damaged_or_defective' },
+  { label: 'Incorrect item, size, or color received', value: 'incorrect_item_details' },
+  { label: 'Delivery address issue', value: 'delivery_address_issue' },
+  { label: 'Item is no longer needed', value: 'no_longer_needed' },
+  { label: 'Other', value: 'other' },
+]
 
 function formatCardNumber(value) {
   return value.replace(/\D/g, '').slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
@@ -78,14 +85,16 @@ function AccountPage() {
   const [activeOrderTab, setActiveOrderTab] = useState(orderGroups[0].id)
   const [reviewingItem, setReviewingItem] = useState(null)
   const [reviewForm, setReviewForm] = useState({ body: '', rating: 5, title: '' })
+  const [returningOrder, setReturningOrder] = useState(null)
+  const [returnForm, setReturnForm] = useState({ itemIndexes: [], notes: '', reason: returnReasons[0].value })
 
   const groupedOrders = useMemo(() => {
-    const reviewed = orders.filter((order) => order.reviewed)
+    const reviewed = orders.filter((order) => order.reviewed && !['cancelled', 'returned'].includes(order.status))
     return orderGroups.map((group) => ({
       ...group,
       orders: group.id === 'reviewed'
         ? reviewed
-        : orders.filter((order) => !order.reviewed && group.statuses.includes(order.status)),
+        : orders.filter((order) => group.statuses.includes(order.status) && (group.id === 'closed' || !order.reviewed)),
     }))
   }, [orders])
   const activeOrderGroup = groupedOrders.find((group) => group.id === activeOrderTab) || groupedOrders[0]
@@ -320,6 +329,47 @@ function AccountPage() {
     }
   }
 
+  const startReturn = (order) => {
+    setError('')
+    setMessage('')
+    setReturningOrder(order)
+    setReturnForm({ itemIndexes: [], notes: '', reason: returnReasons[0].value })
+  }
+
+  const submitReturnRequest = async (event) => {
+    event.preventDefault()
+    if (!returningOrder) return
+
+    setError('')
+    setMessage('')
+    setSaving(true)
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${returningOrder.id}/return`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(returnForm),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to submit the return request.')
+
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order.id === body.order.id ? body.order : order)),
+      )
+      setReturningOrder(null)
+      setReturnForm({ itemIndexes: [], notes: '', reason: returnReasons[0].value })
+      setMessage('Your return request has been sent to the admin team for refund review.')
+    } catch (caughtError) {
+      setError(caughtError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const sendReset = async () => {
     setError('')
     try {
@@ -498,6 +548,7 @@ function AccountPage() {
                     activeGroup={activeOrderGroup}
                     groups={groupedOrders}
                     onCancel={cancelOrder}
+                    onReturn={startReturn}
                     onReview={startReview}
                     onTabChange={setActiveOrderTab}
                   />
@@ -512,6 +563,17 @@ function AccountPage() {
                 onChange={setReviewForm}
                 onClose={() => setReviewingItem(null)}
                 onSubmit={submitReview}
+                saving={saving}
+              />
+            )}
+
+            {returningOrder && (
+              <ReturnRequestDialog
+                form={returnForm}
+                onChange={setReturnForm}
+                onClose={() => setReturningOrder(null)}
+                onSubmit={submitReturnRequest}
+                order={returningOrder}
                 saving={saving}
               />
             )}
@@ -545,7 +607,7 @@ function SaveButton({ saving }) {
   return <button className="mt-7 inline-flex items-center gap-2 rounded-full bg-[#11243e] px-6 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={saving} type="submit"><Save size={17} />{saving ? 'Saving…' : 'Save changes'}</button>
 }
 
-function OrdersTabs({ activeGroup, groups, onCancel, onReview, onTabChange }) {
+function OrdersTabs({ activeGroup, groups, onCancel, onReturn, onReview, onTabChange }) {
   return (
     <section>
       <div className="overflow-x-auto">
@@ -576,18 +638,19 @@ function OrdersTabs({ activeGroup, groups, onCancel, onReview, onTabChange }) {
         <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">No orders in this status.</div>
       ) : (
         <div className="mt-5 space-y-4">
-          {activeGroup.orders.map((order) => <OrderCard key={order.id} onCancel={onCancel} onReview={onReview} order={order} />)}
+          {activeGroup.orders.map((order) => <OrderCard key={order.id} onCancel={onCancel} onReturn={onReturn} onReview={onReview} order={order} />)}
         </div>
       )}
     </section>
   )
 }
 
-function OrderCard({ onCancel, onReview, order }) {
+function OrderCard({ onCancel, onReturn, onReview, order }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const createdAt = order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000) : null
   const canCancel = ['confirmed', 'packing'].includes(order.status)
   const canReview = order.status === 'delivered'
+  const canRequestReturn = order.status === 'delivered' && !order.returnRequest
   const totals = order.totals || {}
   return (
     <article className="rounded-2xl border border-slate-200 p-5">
@@ -641,7 +704,30 @@ function OrderCard({ onCancel, onReview, order }) {
             <XCircle size={16} /> Cancel order
           </button>
         )}
+        {canRequestReturn && (
+          <button className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100" onClick={() => onReturn(order)} type="button">
+            Return item(s)
+          </button>
+        )}
       </div>
+      {order.returnRequest && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Return request: {formatReturnStatus(order.returnRequest.status)}</p>
+          {order.returnRequest.items?.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-800">Items requested</p>
+              {order.returnRequest.items.map((item) => (
+                <p className="text-amber-800" key={`${item.productId}-${item.itemIndex}`}>
+                  {item.quantity}x {item.name}{[item.color, item.size].filter(Boolean).length > 0 ? ` (${[item.color, item.size].filter(Boolean).join(' / ')})` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="mt-1">{order.returnRequest.reasonLabel}</p>
+          {order.returnRequest.notes && <p className="mt-2 text-amber-800">{order.returnRequest.notes}</p>}
+          {order.returnRequest.adminNotes && <p className="mt-2 border-t border-amber-200 pt-2 text-amber-800">Admin note: {order.returnRequest.adminNotes}</p>}
+        </div>
+      )}
       {detailsOpen && (
         <dl className="mt-4 space-y-2 rounded-2xl bg-slate-50 p-4 text-sm">
           <OrderTotalRow label="Subtotal" value={totals.subtotal} />
@@ -666,6 +752,84 @@ function OrderTotalRow({ label, negative, value }) {
     <div className="flex justify-between gap-4 text-slate-600">
       <dt>{label}</dt>
       <dd className={negative && amount > 0 ? 'font-medium text-emerald-700' : 'font-medium'}>{display}</dd>
+    </div>
+  )
+}
+
+function ReturnRequestDialog({ form, onChange, onClose, onSubmit, order, saving }) {
+  const toggleItem = (itemIndex) => {
+    onChange((current) => ({
+      ...current,
+      itemIndexes: current.itemIndexes.includes(itemIndex)
+        ? current.itemIndexes.filter((index) => index !== itemIndex)
+        : [...current.itemIndexes, itemIndex],
+    }))
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-5">
+      <form className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7" onSubmit={onSubmit}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-amber-700">Return request</p>
+            <h3 className="mt-1 text-2xl font-semibold text-[#11243e]">Order {order.id}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-500">Your request will be reviewed by an admin to determine refund eligibility.</p>
+          </div>
+          <button className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={onClose} type="button">
+            <XCircle size={20} />
+          </button>
+        </div>
+
+        <fieldset className="mt-6">
+          <legend className="mb-2 block text-sm font-semibold text-slate-700">Items to return</legend>
+          <div className="space-y-2">
+            {order.items?.map((item, index) => (
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm hover:border-blue-300 hover:bg-blue-50" key={`${item.productId}-${index}`}>
+                <input
+                  checked={form.itemIndexes.includes(index)}
+                  className="mt-1 size-4 accent-blue-700"
+                  onChange={() => toggleItem(index)}
+                  type="checkbox"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold text-[#11243e]">{item.quantity}x {item.name}</span>
+                  {(item.color || item.size) && <span className="mt-1 block text-xs text-slate-500">{[item.color, item.size].filter(Boolean).join(' / ')}</span>}
+                </span>
+                <span className="shrink-0 font-semibold text-[#11243e]">${(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <label className="mt-6 block">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Reason for return</span>
+          <select
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+            onChange={(event) => onChange((current) => ({ ...current, reason: event.target.value }))}
+            value={form.reason}
+          >
+            {returnReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+          </select>
+        </label>
+
+        <label className="mt-5 block">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Additional notes</span>
+          <textarea
+            className="min-h-32 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+            onChange={(event) => onChange((current) => ({ ...current, notes: event.target.value }))}
+            placeholder="Add details that will help the admin review your request."
+            required={form.reason === 'other'}
+            value={form.notes}
+          />
+        </label>
+
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={onClose} type="button">Cancel</button>
+          <button className="rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60" disabled={saving || form.itemIndexes.length === 0} type="submit">
+            {saving ? 'Submitting...' : 'Submit return request'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
@@ -737,6 +901,14 @@ function StarRating({ onChange, value }) {
       ))}
     </div>
   )
+}
+
+function formatReturnStatus(status) {
+  return {
+    approved: 'Approved for refund review',
+    declined: 'Not eligible for refund',
+    pending_review: 'Pending admin review',
+  }[status] || 'Pending admin review'
 }
 
 function sectionDescription(section) {

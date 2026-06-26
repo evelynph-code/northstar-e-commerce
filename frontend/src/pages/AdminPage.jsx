@@ -7,6 +7,7 @@ import {
   PackageCheck,
   Phone,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Video,
@@ -34,14 +35,18 @@ function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [savingOrderId, setSavingOrderId] = useState('')
   const [orderSearch, setOrderSearch] = useState('')
+  const [returnsOnly, setReturnsOnly] = useState(false)
   const [error, setError] = useState('')
 
   const filteredOrders = useMemo(() => {
     const query = orderSearch.trim().toLowerCase()
-    if (!query) return orders
+    const scopedOrders = returnsOnly
+      ? orders.filter((order) => order.returnRequest?.status === 'pending_review')
+      : orders
+    if (!query) return scopedOrders
 
-    return orders.filter((order) => order.id.toLowerCase().includes(query))
-  }, [orderSearch, orders])
+    return scopedOrders.filter((order) => order.id.toLowerCase().includes(query))
+  }, [orderSearch, orders, returnsOnly])
 
   const orderCounts = useMemo(
     () =>
@@ -151,6 +156,11 @@ function AdminPage() {
 
   const reviewReturnRequest = async (orderId, status, adminNotes) => {
     const currentOrders = orders
+    if (status === 'declined' && !adminNotes.trim()) {
+      setError('Add a decision note before declining this return request.')
+      return
+    }
+
     setSavingOrderId(orderId)
     setError('')
 
@@ -229,6 +239,33 @@ function AdminPage() {
 
         {activeTab === 'orders' && (
           <>
+            {pendingReturnCount > 0 && (
+              <section className="mt-8 rounded-3xl border border-blue-200 bg-blue-50 p-5 sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <span className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-blue-700">
+                      <RotateCcw size={20} />
+                    </span>
+                    <div>
+                      <h2 className="font-semibold text-[#11243e]">{pendingReturnCount} return request{pendingReturnCount === 1 ? '' : 's'} need review</h2>
+                      <p className="mt-1 text-sm leading-6 text-blue-800">Review item selections, reasons, and notes before approving refund eligibility.</p>
+                    </div>
+                  </div>
+                  <button
+                    className="rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-900"
+                    onClick={() => {
+                      setActiveTab('orders')
+                      setOrderSearch('')
+                      setReturnsOnly(true)
+                    }}
+                    type="button"
+                  >
+                    View return requests
+                  </button>
+                </div>
+              </section>
+            )}
+
             <label className="relative mt-8 block max-w-xl">
               <span className="sr-only">Search orders by order number</span>
               <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -251,6 +288,24 @@ function AdminPage() {
               )}
             </label>
 
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${
+                  returnsOnly ? 'bg-[#11243e] text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-[#11243e]'
+                }`}
+                onClick={() => setReturnsOnly((current) => !current)}
+                type="button"
+              >
+                <RotateCcw size={16} /> Pending returns
+                <span className={`rounded-full px-2 py-0.5 text-[11px] ${returnsOnly ? 'bg-white/15 text-white' : 'bg-blue-50 text-blue-700'}`}>{pendingReturnCount}</span>
+              </button>
+              {returnsOnly && (
+                <button className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-white hover:text-[#11243e]" onClick={() => setReturnsOnly(false)} type="button">
+                  Show all orders
+                </button>
+              )}
+            </div>
+
             {orderCounts.length > 0 && (
               <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {orderCounts.map(({ count, status }) => (
@@ -259,9 +314,9 @@ function AdminPage() {
                     <p className="mt-2 text-2xl font-semibold text-[#11243e]">{count}</p>
                   </div>
                 ))}
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Return review</p>
-                  <p className="mt-2 text-2xl font-semibold text-amber-900">{pendingReturnCount}</p>
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Pending returns</p>
+                  <p className="mt-2 text-2xl font-semibold text-[#11243e]">{pendingReturnCount}</p>
                 </div>
               </div>
             )}
@@ -323,12 +378,17 @@ function OrderBoardCard({ onReturnReview, onStatusChange, order, saving, statuse
   const returnPending = returnRequest?.status === 'pending_review'
 
   return (
-    <article className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
+    <article className={`rounded-3xl border bg-white p-5 sm:p-6 ${returnPending ? 'border-blue-300 shadow-lg shadow-blue-950/5' : 'border-slate-200'}`}>
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-5">
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Order {order.id}</p>
           <h2 className="mt-1 text-xl font-semibold text-[#11243e]">{delivery.fullName || order.customerEmail}</h2>
           <p className="mt-1 text-sm text-slate-500">{createdAt ? createdAt.toLocaleString() : 'Processing date'}</p>
+          {returnPending && (
+            <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+              <RotateCcw size={14} /> Return review needed
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {saving && <RefreshCw className="animate-spin text-slate-400" size={17} />}
@@ -369,54 +429,56 @@ function OrderBoardCard({ onReturnReview, onStatusChange, order, saving, statuse
         </aside>
       </div>
       {returnRequest && (
-        <section className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <section className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="font-semibold text-amber-900">Return request: {formatReturnStatus(returnRequest.status)}</p>
+              <p className="font-semibold text-[#11243e]">Return eligibility review</p>
               {returnRequest.items?.length > 0 && (
                 <div className="mt-3 space-y-1">
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-800">Items requested</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Requested items</p>
                   {returnRequest.items.map((item) => (
-                    <p className="text-amber-800" key={`${item.productId}-${item.itemIndex}`}>
+                    <p className="text-slate-600" key={`${item.productId}-${item.itemIndex}`}>
                       {item.quantity}x {item.name}{[item.color, item.size].filter(Boolean).length > 0 ? ` (${[item.color, item.size].filter(Boolean).join(' / ')})` : ''}
                     </p>
                   ))}
                 </div>
               )}
-              <p className="mt-1 text-amber-800">{returnRequest.reasonLabel}</p>
-              {returnRequest.notes && <p className="mt-2 leading-6 text-amber-800">{returnRequest.notes}</p>}
-              {returnRequest.adminNotes && <p className="mt-2 border-t border-amber-200 pt-2 text-amber-800">Admin note: {returnRequest.adminNotes}</p>}
+              <p className="mt-3 font-medium text-[#11243e]">{returnRequest.reasonLabel}</p>
+              {returnRequest.notes && <p className="mt-2 leading-6 text-slate-600">{returnRequest.notes}</p>}
+              {returnRequest.adminNotes && <p className="mt-3 border-t border-slate-200 pt-3 leading-6 text-slate-600">Review note: {returnRequest.adminNotes}</p>}
             </div>
-            {returnPending && <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700">Refund eligibility review</span>}
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${returnStatusStyle(returnRequest.status)}`}>
+              {formatReturnStatus(returnRequest.status)}
+            </span>
           </div>
 
           {returnPending && (
-            <div className="mt-4 border-t border-amber-200 pt-4">
+            <div className="mt-4 border-t border-slate-200 pt-4">
               <label className="block">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-amber-800">Admin notes</span>
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Decision notes</span>
                 <textarea
-                  className="min-h-24 w-full resize-none rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-[#11243e] outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
+                  className="min-h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-[#11243e] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                   onChange={(event) => setAdminNotes(event.target.value)}
-                  placeholder="Record refund eligibility notes."
+                  placeholder="For approvals, record refund instructions. For declines, explain why the return is not eligible."
                   value={adminNotes}
                 />
               </label>
               <div className="mt-3 flex flex-wrap gap-3">
                 <button
-                  className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
                   disabled={saving}
                   onClick={() => onReturnReview(order.id, 'approved', adminNotes)}
                   type="button"
                 >
-                  Approve refund review
+                  Approve return
                 </button>
                 <button
                   className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 disabled:opacity-60"
-                  disabled={saving}
+                  disabled={saving || !adminNotes.trim()}
                   onClick={() => onReturnReview(order.id, 'declined', adminNotes)}
                   type="button"
                 >
-                  Decline request
+                  Decline return
                 </button>
               </div>
             </div>
@@ -429,10 +491,18 @@ function OrderBoardCard({ onReturnReview, onStatusChange, order, saving, statuse
 
 function formatReturnStatus(status) {
   return {
-    approved: 'Approved for refund review',
-    declined: 'Not eligible for refund',
-    pending_review: 'Pending admin review',
-  }[status] || 'Pending admin review'
+    approved: 'Refund initialized',
+    declined: 'Refund not approved',
+    pending_review: 'Under review',
+  }[status] || 'Under review'
+}
+
+function returnStatusStyle(status) {
+  return {
+    approved: 'bg-emerald-50 text-emerald-700',
+    declined: 'bg-rose-50 text-rose-700',
+    pending_review: 'bg-blue-50 text-blue-700',
+  }[status] || 'bg-blue-50 text-blue-700'
 }
 
 function ShopManagement({ lowStockProducts, onApprove, pendingItems, products }) {

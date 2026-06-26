@@ -8,6 +8,7 @@ import {
   KeyRound,
   LogOut,
   Package,
+  PackageCheck,
   Save,
   ShieldCheck,
   ShoppingBag,
@@ -705,27 +706,35 @@ function OrderCard({ onCancel, onReturn, onReview, order }) {
           </button>
         )}
         {canRequestReturn && (
-          <button className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100" onClick={() => onReturn(order)} type="button">
-            Return item(s)
+          <button className="inline-flex items-center gap-2 rounded-full bg-[#11243e] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900" onClick={() => onReturn(order)} type="button">
+            Request return
           </button>
         )}
       </div>
       {order.returnRequest && (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-semibold">Return request: {formatReturnStatus(order.returnRequest.status)}</p>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="font-semibold text-[#11243e]">Return request</p>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${returnStatusStyle(order.returnRequest.status)}`}>
+              {formatReturnStatus(order.returnRequest.status)}
+            </span>
+          </div>
+          <p className={`mt-3 rounded-xl px-4 py-3 font-medium ${returnOutcomeStyle(order.returnRequest.status)}`}>
+            {returnOutcomeMessage(order.returnRequest.status)}
+          </p>
           {order.returnRequest.items?.length > 0 && (
             <div className="mt-3 space-y-1">
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-800">Items requested</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Requested items</p>
               {order.returnRequest.items.map((item) => (
-                <p className="text-amber-800" key={`${item.productId}-${item.itemIndex}`}>
+                <p className="text-slate-600" key={`${item.productId}-${item.itemIndex}`}>
                   {item.quantity}x {item.name}{[item.color, item.size].filter(Boolean).length > 0 ? ` (${[item.color, item.size].filter(Boolean).join(' / ')})` : ''}
                 </p>
               ))}
             </div>
           )}
-          <p className="mt-1">{order.returnRequest.reasonLabel}</p>
-          {order.returnRequest.notes && <p className="mt-2 text-amber-800">{order.returnRequest.notes}</p>}
-          {order.returnRequest.adminNotes && <p className="mt-2 border-t border-amber-200 pt-2 text-amber-800">Admin note: {order.returnRequest.adminNotes}</p>}
+          <p className="mt-3 font-medium text-[#11243e]">{order.returnRequest.reasonLabel}</p>
+          {order.returnRequest.notes && <p className="mt-2 leading-6 text-slate-600">{order.returnRequest.notes}</p>}
+          {order.returnRequest.adminNotes && <p className="mt-3 border-t border-slate-200 pt-3 leading-6 text-slate-600">Review note: {order.returnRequest.adminNotes}</p>}
         </div>
       )}
       {detailsOpen && (
@@ -767,24 +776,34 @@ function ReturnRequestDialog({ form, onChange, onClose, onSubmit, order, saving 
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-5">
-      <form className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7" onSubmit={onSubmit}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/45 px-5 py-8">
+      <form className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl sm:p-7" onSubmit={onSubmit}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-amber-700">Return request</p>
-            <h3 className="mt-1 text-2xl font-semibold text-[#11243e]">Order {order.id}</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-500">Your request will be reviewed by an admin to determine refund eligibility.</p>
+            <p className="text-sm font-semibold text-blue-700">Returns center</p>
+            <h3 className="mt-1 text-2xl font-semibold text-[#11243e]">Request a return</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-500">Select the item or items you want reviewed. An admin will confirm eligibility before any refund is processed.</p>
           </div>
           <button className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={onClose} type="button">
             <XCircle size={20} />
           </button>
         </div>
 
+        <div className="mt-6 grid gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900 sm:grid-cols-[auto_1fr]">
+          <span className="grid size-10 place-items-center rounded-full bg-white text-blue-700">
+            <PackageCheck size={19} />
+          </span>
+          <div>
+            <p className="font-semibold">Order {order.id}</p>
+            <p className="mt-1 leading-6 text-blue-800">Return approval depends on item condition, reason, and order history.</p>
+          </div>
+        </div>
+
         <fieldset className="mt-6">
-          <legend className="mb-2 block text-sm font-semibold text-slate-700">Items to return</legend>
+          <legend className="mb-2 block text-sm font-semibold text-slate-700">Select items for return review</legend>
           <div className="space-y-2">
             {order.items?.map((item, index) => (
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm hover:border-blue-300 hover:bg-blue-50" key={`${item.productId}-${index}`}>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 text-sm transition ${form.itemIndexes.includes(index) ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'}`} key={`${item.productId}-${index}`}>
                 <input
                   checked={form.itemIndexes.includes(index)}
                   className="mt-1 size-4 accent-blue-700"
@@ -802,7 +821,7 @@ function ReturnRequestDialog({ form, onChange, onClose, onSubmit, order, saving 
         </fieldset>
 
         <label className="mt-6 block">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">Reason for return</span>
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Return reason</span>
           <select
             className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
             onChange={(event) => onChange((current) => ({ ...current, reason: event.target.value }))}
@@ -813,11 +832,11 @@ function ReturnRequestDialog({ form, onChange, onClose, onSubmit, order, saving 
         </label>
 
         <label className="mt-5 block">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">Additional notes</span>
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Notes for review</span>
           <textarea
             className="min-h-32 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
             onChange={(event) => onChange((current) => ({ ...current, notes: event.target.value }))}
-            placeholder="Add details that will help the admin review your request."
+            placeholder="Include condition, packaging, photos available, or anything else the admin should know."
             required={form.reason === 'other'}
             value={form.notes}
           />
@@ -826,7 +845,7 @@ function ReturnRequestDialog({ form, onChange, onClose, onSubmit, order, saving 
         <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button className="rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={onClose} type="button">Cancel</button>
           <button className="rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60" disabled={saving || form.itemIndexes.length === 0} type="submit">
-            {saving ? 'Submitting...' : 'Submit return request'}
+            {saving ? 'Submitting...' : 'Send for review'}
           </button>
         </div>
       </form>
@@ -905,10 +924,34 @@ function StarRating({ onChange, value }) {
 
 function formatReturnStatus(status) {
   return {
-    approved: 'Approved for refund review',
-    declined: 'Not eligible for refund',
-    pending_review: 'Pending admin review',
-  }[status] || 'Pending admin review'
+    approved: 'Refund initialized',
+    declined: 'Refund not approved',
+    pending_review: 'Under review',
+  }[status] || 'Under review'
+}
+
+function returnStatusStyle(status) {
+  return {
+    approved: 'bg-emerald-50 text-emerald-700',
+    declined: 'bg-rose-50 text-rose-700',
+    pending_review: 'bg-blue-50 text-blue-700',
+  }[status] || 'bg-blue-50 text-blue-700'
+}
+
+function returnOutcomeMessage(status) {
+  return {
+    approved: 'Your return was approved. A refund has been initialized and will be processed according to the payment method used for this order.',
+    declined: "Your return isn't qualified for a refund.",
+    pending_review: 'Your return request is under admin review.',
+  }[status] || 'Your return request is under admin review.'
+}
+
+function returnOutcomeStyle(status) {
+  return {
+    approved: 'bg-emerald-50 text-emerald-800',
+    declined: 'bg-rose-50 text-rose-700',
+    pending_review: 'bg-blue-50 text-blue-800',
+  }[status] || 'bg-blue-50 text-blue-800'
 }
 
 function sectionDescription(section) {

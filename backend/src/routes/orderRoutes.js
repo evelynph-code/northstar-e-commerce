@@ -210,6 +210,10 @@ orderRouter.patch('/:orderId/return', requireAuth, async (request, response, nex
       return response.status(400).json({ message: 'Choose a valid return decision.' })
     }
 
+    if (status === 'declined' && !adminNotes) {
+      return response.status(400).json({ message: 'Add a reason before declining this return request.' })
+    }
+
     const orderReference = firestore().collection('orders').doc(request.params.orderId)
     const snapshot = await orderReference.get()
 

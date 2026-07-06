@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
+import { isAdminEmail } from '../config/adminAccess.js'
 import { firestore } from '../config/firebase.js'
 import { requireAuth } from '../middleware/requireAuth.js'
 
@@ -27,8 +28,7 @@ function itemReference(uid, itemId) {
 }
 
 async function requireAdminUser(request, response) {
-  const snapshot = await firestore().collection('users').doc(request.user.uid).get()
-  if (snapshot.data()?.isAdmin) return true
+  if (isAdminEmail(request.user.email)) return true
 
   response.status(403).json({ message: 'Admin access required.' })
   return false

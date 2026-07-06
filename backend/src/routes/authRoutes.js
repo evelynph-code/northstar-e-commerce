@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
 import { adminAuth, firestore } from '../config/firebase.js'
+import { isAdminEmail } from '../config/adminAccess.js'
 import { requireAuth } from '../middleware/requireAuth.js'
 
 const authRouter = Router()
@@ -18,6 +19,7 @@ authRouter.post('/profile', requireAuth, async (request, response, next) => {
       email: request.user.email,
       displayName,
       userName: request.body.userName?.trim() || '',
+      isAdmin: isAdminEmail(request.user.email),
       updatedAt: FieldValue.serverTimestamp(),
     }
 
@@ -51,7 +53,20 @@ authRouter.get('/me', requireAuth, async (request, response, next) => {
     const snapshot = await userReference.get()
 
     if (snapshot.exists) {
-      return response.json({ user: snapshot.data() })
+      const profile = snapshot.data()
+      const isAdmin = isAdminEmail(profile.email || request.user.email)
+      if (profile.isAdmin !== isAdmin) {
+        await userReference.set(
+          {
+            email: profile.email || request.user.email,
+            isAdmin,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+
+      return response.json({ user: { ...profile, isAdmin } })
     }
 
     const authUser = await adminAuth().getUser(request.user.uid)
@@ -59,6 +74,7 @@ authRouter.get('/me', requireAuth, async (request, response, next) => {
       uid: authUser.uid,
       email: authUser.email || request.user.email || null,
       displayName: authUser.displayName || request.user.name || null,
+      isAdmin: isAdminEmail(authUser.email || request.user.email),
     }
 
     await userReference.set({
@@ -68,33 +84,6 @@ authRouter.get('/me', requireAuth, async (request, response, next) => {
     })
 
     return response.status(201).json({ user: profile })
-  } catch (error) {
-    return next(error)
-  }
-})
-
-authRouter.patch('/me/admin-access', requireAuth, async (request, response, next) => {
-  try {
-    if (request.body.confirmAdmin !== true) {
-      return response.status(400).json({ message: 'Confirm admin access before continuing.' })
-    }
-
-    const updates = {
-      isAdmin: true,
-      uid: request.user.uid,
-      email: request.user.email,
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await firestore().collection('users').doc(request.user.uid).set(updates, { merge: true })
-
-    return response.json({
-      user: {
-        isAdmin: true,
-        uid: request.user.uid,
-        email: request.user.email,
-      },
-    })
   } catch (error) {
     return next(error)
   }
@@ -144,6 +133,7 @@ authRouter.patch('/me', requireAuth, async (request, response, next) => {
           ...updates,
           uid: request.user.uid,
           email: request.user.email,
+          isAdmin: isAdminEmail(request.user.email),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
@@ -158,6 +148,7 @@ authRouter.patch('/me', requireAuth, async (request, response, next) => {
         ...updates,
         uid: request.user.uid,
         email: request.user.email,
+        isAdmin: isAdminEmail(request.user.email),
       },
     })
   } catch (error) {

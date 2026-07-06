@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
+import { isAdminEmail } from '../config/adminAccess.js'
 import { firestore } from '../config/firebase.js'
 import { requireAuth } from '../middleware/requireAuth.js'
 import { broadcastStockUpdate } from '../socket.js'
@@ -21,8 +22,7 @@ const returnReasons = {
 const returnRequestStatuses = ['approved', 'declined']
 
 async function requireAdminUser(request, response) {
-  const snapshot = await firestore().collection('users').doc(request.user.uid).get()
-  if (snapshot.data()?.isAdmin) return true
+  if (isAdminEmail(request.user.email)) return true
 
   response.status(403).json({ message: 'Admin access required.' })
   return false

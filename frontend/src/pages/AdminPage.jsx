@@ -35,6 +35,7 @@ function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [savingOrderId, setSavingOrderId] = useState('')
   const [orderSearch, setOrderSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [returnsOnly, setReturnsOnly] = useState(false)
   const [error, setError] = useState('')
 
@@ -42,19 +43,21 @@ function AdminPage() {
     const query = orderSearch.trim().toLowerCase()
     const scopedOrders = returnsOnly
       ? orders.filter((order) => order.returnRequest?.status === 'pending_review')
+      : statusFilter
+        ? orders.filter((order) => order.status === statusFilter)
       : orders
     if (!query) return scopedOrders
 
     return scopedOrders.filter((order) => order.id.toLowerCase().includes(query))
-  }, [orderSearch, orders, returnsOnly])
+  }, [orderSearch, orders, returnsOnly, statusFilter])
 
   const orderCounts = useMemo(
     () =>
       statuses.map((status) => ({
         status,
-        count: filteredOrders.filter((order) => order.status === status).length,
+        count: orders.filter((order) => order.status === status).length,
       })),
-    [filteredOrders, statuses],
+    [orders, statuses],
   )
   const lowStockProducts = useMemo(
     () => products.filter((product) => Number(product.stock) <= 5),
@@ -251,17 +254,6 @@ function AdminPage() {
                       <p className="mt-1 text-sm leading-6 text-blue-800">Review item selections, reasons, and notes before approving refund eligibility.</p>
                     </div>
                   </div>
-                  <button
-                    className="rounded-full bg-[#11243e] px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-900"
-                    onClick={() => {
-                      setActiveTab('orders')
-                      setOrderSearch('')
-                      setReturnsOnly(true)
-                    }}
-                    type="button"
-                  >
-                    View return requests
-                  </button>
                 </div>
               </section>
             )}
@@ -289,19 +281,14 @@ function AdminPage() {
             </label>
 
             <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${
-                  returnsOnly ? 'bg-[#11243e] text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-[#11243e]'
-                }`}
-                onClick={() => setReturnsOnly((current) => !current)}
-                type="button"
-              >
-                <RotateCcw size={16} /> Pending returns
-                <span className={`rounded-full px-2 py-0.5 text-[11px] ${returnsOnly ? 'bg-white/15 text-white' : 'bg-blue-50 text-blue-700'}`}>{pendingReturnCount}</span>
-              </button>
               {returnsOnly && (
                 <button className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-white hover:text-[#11243e]" onClick={() => setReturnsOnly(false)} type="button">
                   Show all orders
+                </button>
+              )}
+              {statusFilter && (
+                <button className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-white hover:text-[#11243e]" onClick={() => setStatusFilter('')} type="button">
+                  Clear status
                 </button>
               )}
             </div>
@@ -309,15 +296,38 @@ function AdminPage() {
             {orderCounts.length > 0 && (
               <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {orderCounts.map(({ count, status }) => (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4" key={status}>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{status}</p>
-                    <p className="mt-2 text-2xl font-semibold text-[#11243e]">{count}</p>
-                  </div>
+                  <button
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      statusFilter === status && !returnsOnly
+                        ? 'border-[#11243e] bg-[#11243e] text-white shadow-lg shadow-slate-900/10'
+                        : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg hover:shadow-slate-900/10'
+                    }`}
+                    key={status}
+                    onClick={() => {
+                      setReturnsOnly(false)
+                      setStatusFilter((current) => (current === status ? '' : status))
+                    }}
+                    type="button"
+                  >
+                    <p className={`text-xs font-bold uppercase tracking-wider ${statusFilter === status && !returnsOnly ? 'text-slate-200' : 'text-slate-400'}`}>{status}</p>
+                    <p className={`mt-2 text-2xl font-semibold ${statusFilter === status && !returnsOnly ? 'text-white' : 'text-[#11243e]'}`}>{count}</p>
+                  </button>
                 ))}
-                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Pending returns</p>
-                  <p className="mt-2 text-2xl font-semibold text-[#11243e]">{pendingReturnCount}</p>
-                </div>
+                <button
+                  className={`rounded-2xl border p-4 text-left transition ${
+                    returnsOnly
+                      ? 'border-[#11243e] bg-[#11243e] text-white shadow-lg shadow-slate-900/10'
+                      : 'border-blue-200 bg-blue-50 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg hover:shadow-slate-900/10'
+                  }`}
+                  onClick={() => {
+                    setReturnsOnly((current) => !current)
+                    setStatusFilter('')
+                  }}
+                  type="button"
+                >
+                  <p className={`text-xs font-bold uppercase tracking-wider ${returnsOnly ? 'text-slate-200' : 'text-blue-700'}`}>Pending returns</p>
+                  <p className={`mt-2 text-2xl font-semibold ${returnsOnly ? 'text-white' : 'text-[#11243e]'}`}>{pendingReturnCount}</p>
+                </button>
               </div>
             )}
           </>
@@ -347,7 +357,13 @@ function AdminPage() {
             <div>
               <Search className="mx-auto text-slate-400" size={34} />
               <h2 className="mt-4 font-semibold text-[#11243e]">No matching orders</h2>
-              <p className="mt-1 text-sm text-slate-500">Try a different order number.</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {returnsOnly
+                  ? 'There are no pending return requests.'
+                  : statusFilter
+                    ? `There are no ${statusFilter} orders.`
+                    : 'Try a different order number.'}
+              </p>
             </div>
           </div>
         ) : (

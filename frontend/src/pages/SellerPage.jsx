@@ -4,7 +4,12 @@ import {
   BadgeDollarSign,
   Boxes,
   Image,
+  Mail,
+  MapPin,
   PackagePlus,
+  Phone,
+  RefreshCw,
+  RotateCcw,
   Save,
   Store,
   Video,
@@ -20,6 +25,14 @@ const emptyShop = {
   city: '',
 }
 const sellerCategories = ['Apparel', 'Accessories', 'Footwear', 'Home goods', 'Electronics', 'Beauty']
+const statusStyles = {
+  confirmed: 'bg-blue-50 text-blue-700',
+  packing: 'bg-amber-50 text-amber-700',
+  shipped: 'bg-indigo-50 text-indigo-700',
+  delivered: 'bg-emerald-50 text-emerald-700',
+  cancelled: 'bg-rose-50 text-rose-700',
+  returned: 'bg-slate-100 text-slate-700',
+}
 
 function SellerPage() {
   const { authLoading, profile, user } = useAuth()
@@ -36,8 +49,11 @@ function SellerPage() {
 function SellerWorkspace({ profile, user }) {
   const [shop, setShop] = useState(emptyShop)
   const [items, setItems] = useState([])
+  const [orders, setOrders] = useState([])
+  const [orderStatuses, setOrderStatuses] = useState([])
   const [workspaceLoading, setWorkspaceLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingOrderId, setSavingOrderId] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -53,15 +69,25 @@ function SellerWorkspace({ profile, user }) {
     async function loadWorkspace() {
       try {
         const token = await user.getIdToken()
-        const response = await fetch('/api/seller/workspace', {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        })
-        const body = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(body.message || 'Unable to load seller workspace.')
+        const [workspaceResponse, ordersResponse] = await Promise.all([
+          fetch('/api/seller/workspace', {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }),
+          fetch('/api/orders/seller', {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }),
+        ])
+        const body = await workspaceResponse.json().catch(() => ({}))
+        const ordersBody = await ordersResponse.json().catch(() => ({}))
+        if (!workspaceResponse.ok) throw new Error(body.message || 'Unable to load seller workspace.')
+        if (!ordersResponse.ok) throw new Error(ordersBody.message || 'Unable to load seller orders.')
 
         setShop({ ...emptyShop, ...(body.shop || {}) })
         setItems(body.items || [])
+        setOrders(ordersBody.orders || [])
+        setOrderStatuses(ordersBody.statuses || [])
       } catch (caughtError) {
         if (caughtError.name !== 'AbortError') setError(caughtError.message)
       } finally {
@@ -121,6 +147,70 @@ function SellerWorkspace({ profile, user }) {
       setError(caughtError.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const updateOrderStatus = async (orderId, status) => {
+    const currentOrders = orders
+    setSavingOrderId(orderId)
+    setError('')
+    setOrders((existingOrders) =>
+      existingOrders.map((order) => (order.id === orderId ? { ...order, status } : order)),
+    )
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to update order status.')
+      setMessage('Order status updated.')
+    } catch (caughtError) {
+      setOrders(currentOrders)
+      setError(caughtError.message)
+    } finally {
+      setSavingOrderId('')
+    }
+  }
+
+  const reviewReturnRequest = async (orderId, status, sellerNotes) => {
+    const currentOrders = orders
+    if (status === 'declined' && !sellerNotes.trim()) {
+      setError('Add a decision note before declining this return request.')
+      return
+    }
+
+    setSavingOrderId(orderId)
+    setError('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/orders/${orderId}/return`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ adminNotes: sellerNotes, status }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to update the return request.')
+
+      setOrders((existingOrders) =>
+        existingOrders.map((order) => (order.id === body.order.id ? body.order : order)),
+      )
+      setMessage(status === 'approved' ? 'Return approved and refund initialized.' : 'Return request declined.')
+    } catch (caughtError) {
+      setOrders(currentOrders)
+      setError(caughtError.message)
+    } finally {
+      setSavingOrderId('')
     }
   }
 
@@ -244,6 +334,34 @@ function SellerWorkspace({ profile, user }) {
                 )}
               </div>
             </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6">
+              <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
+                <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-700"><Boxes size={20} /></span>
+                <h2 className="text-xl font-semibold text-[#11243e]">Order control</h2>
+              </div>
+              {orders.length === 0 ? (
+                <div className="mt-6 grid min-h-40 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center">
+                  <div>
+                    <Boxes className="mx-auto text-slate-400" size={28} />
+                    <h3 className="mt-3 font-semibold text-[#11243e]">No seller orders yet</h3>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 grid gap-4">
+                  {orders.map((order) => (
+                    <SellerOrderCard
+                      key={order.id}
+                      onReturnReview={reviewReturnRequest}
+                      onStatusChange={updateOrderStatus}
+                      order={order}
+                      saving={savingOrderId === order.id}
+                      statuses={orderStatuses}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
       </div>
@@ -274,6 +392,132 @@ function ItemMediaPreview({ item }) {
   }
 
   return <Image size={24} />
+}
+
+function SellerOrderCard({ onReturnReview, onStatusChange, order, saving, statuses }) {
+  const [sellerNotes, setSellerNotes] = useState('')
+  const createdAt = order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000) : null
+  const delivery = order.delivery || {}
+  const returnRequest = order.returnRequest
+  const returnPending = returnRequest?.status === 'pending_review'
+  const total = (order.items || []).reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0)
+
+  return (
+    <article className={`rounded-2xl border p-5 ${returnPending ? 'border-blue-300 shadow-lg shadow-blue-950/5' : 'border-slate-200'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Order {order.id}</p>
+          <h3 className="mt-1 font-semibold text-[#11243e]">{delivery.fullName || order.customerEmail}</h3>
+          <p className="mt-1 text-sm text-slate-500">{createdAt ? createdAt.toLocaleString() : 'Processing date'}</p>
+          {returnPending && (
+            <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+              <RotateCcw size={14} /> Return review needed
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {saving && <RefreshCw className="animate-spin text-slate-400" size={17} />}
+          <select
+            className={`rounded-full border-0 px-4 py-2 text-sm font-semibold capitalize outline-none ring-1 ring-slate-200 ${statusStyles[order.status] || 'bg-slate-50 text-slate-700'}`}
+            disabled={saving}
+            onChange={(event) => onStatusChange(order.id, event.target.value)}
+            value={order.status || 'confirmed'}
+          >
+            {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="space-y-3">
+          {order.items?.map((item, index) => (
+            <div className="flex justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm" key={`${item.productId}-${index}`}>
+              <span className="min-w-0 text-slate-600">
+                <span className="font-semibold text-[#11243e]">{item.quantity}x</span> {item.name}
+                {(item.color || item.size) && <span className="block text-xs text-slate-400">{[item.color, item.size].filter(Boolean).join(' / ')}</span>}
+              </span>
+              <span className="shrink-0 font-semibold text-[#11243e]">${(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+        <aside className="rounded-2xl bg-slate-50 p-4 text-sm">
+          <div className="space-y-3 text-slate-600">
+            <p className="flex gap-2"><Mail className="mt-0.5 shrink-0 text-slate-400" size={16} /> {delivery.email || order.customerEmail}</p>
+            <p className="flex gap-2"><Phone className="mt-0.5 shrink-0 text-slate-400" size={16} /> {delivery.phone || 'No phone'}</p>
+            <p className="flex gap-2"><MapPin className="mt-0.5 shrink-0 text-slate-400" size={16} /> {[delivery.address, delivery.city, delivery.postalCode].filter(Boolean).join(', ')}</p>
+          </div>
+          <div className="mt-4 flex justify-between border-t border-slate-200 pt-4 font-semibold text-[#11243e]">
+            <span>Seller total</span>
+            <span>${total.toFixed(2)}</span>
+          </div>
+        </aside>
+      </div>
+
+      {returnRequest && (
+        <section className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-[#11243e]">Return eligibility review</p>
+              {returnRequest.items?.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Requested items</p>
+                  {returnRequest.items.map((item) => (
+                    <p className="text-slate-600" key={`${item.productId}-${item.itemIndex}`}>
+                      {item.quantity}x {item.name}{[item.color, item.size].filter(Boolean).length > 0 ? ` (${[item.color, item.size].filter(Boolean).join(' / ')})` : ''}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="mt-3 font-medium text-[#11243e]">{returnRequest.reasonLabel}</p>
+              {returnRequest.notes && <p className="mt-2 leading-6 text-slate-600">{returnRequest.notes}</p>}
+              {returnRequest.adminNotes && <p className="mt-3 border-t border-slate-200 pt-3 leading-6 text-slate-600">Review note: {returnRequest.adminNotes}</p>}
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${returnStatusStyle(returnRequest.status)}`}>
+              {formatReturnStatus(returnRequest.status)}
+            </span>
+          </div>
+
+          {returnPending && (
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Decision notes</span>
+                <textarea
+                  className="min-h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-[#11243e] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                  onChange={(event) => setSellerNotes(event.target.value)}
+                  placeholder="For approvals, record refund instructions. For declines, explain why the return is not eligible."
+                  value={sellerNotes}
+                />
+              </label>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60" disabled={saving} onClick={() => onReturnReview(order.id, 'approved', sellerNotes)} type="button">
+                  Approve return
+                </button>
+                <button className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 disabled:opacity-60" disabled={saving || !sellerNotes.trim()} onClick={() => onReturnReview(order.id, 'declined', sellerNotes)} type="button">
+                  Decline return
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+    </article>
+  )
+}
+
+function formatReturnStatus(status) {
+  return {
+    approved: 'Refund initialized',
+    declined: 'Refund not approved',
+    pending_review: 'Under review',
+  }[status] || 'Under review'
+}
+
+function returnStatusStyle(status) {
+  return {
+    approved: 'bg-emerald-50 text-emerald-700',
+    declined: 'bg-rose-50 text-rose-700',
+    pending_review: 'bg-blue-50 text-blue-700',
+  }[status] || 'bg-blue-50 text-blue-700'
 }
 
 function Stat({ icon: Icon, label, value }) {

@@ -308,6 +308,55 @@ sellerRouter.patch('/items/:itemId/status', requireAuth, async (request, respons
   }
 })
 
+sellerRouter.get('/admin/shops', requireAuth, async (request, response, next) => {
+  try {
+    if (!(await requireAdminUser(request, response))) return
+
+    const [sellerSnapshots, orderSnapshots] = await Promise.all([
+      firestore().collection('sellers').get(),
+      firestore().collection('orders').get(),
+    ])
+    const orders = orderSnapshots.docs.map((document) => ({ id: document.id, ...document.data() }))
+    const shops = await Promise.all(
+      sellerSnapshots.docs.map(async (sellerDocument) => {
+        const seller = sellerDocument.data()
+        const itemsSnapshot = await sellerDocument.ref.collection('items').get()
+        const products = itemsSnapshot.docs.map((itemDocument) => ({ id: itemDocument.id, ...itemDocument.data() }))
+        const shopOrders = orders.filter((order) =>
+          (order.items || []).some((item) => item.sellerId === sellerDocument.id),
+        )
+        const statusCounts = shopOrders.reduce((counts, order) => ({
+          ...counts,
+          [order.status || 'confirmed']: (counts[order.status || 'confirmed'] || 0) + 1,
+        }), {})
+        const unitsSold = products.reduce((sum, product) => sum + Number(product.sold || 0), 0)
+        const revenue = shopOrders.reduce((sum, order) => {
+          const sellerItems = (order.items || []).filter((item) => item.sellerId === sellerDocument.id)
+          return sum + sellerItems.reduce((itemSum, item) => itemSum + Number(item.price || 0) * Number(item.quantity || 0), 0)
+        }, 0)
+
+        return {
+          id: sellerDocument.id,
+          email: seller.email || '',
+          shop: seller.shop || {},
+          products,
+          stats: {
+            orders: shopOrders.length,
+            products: products.length,
+            revenue,
+            statusCounts,
+            unitsSold,
+          },
+        }
+      }),
+    )
+
+    return response.json({ shops })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 sellerRouter.get('/admin/items', requireAuth, async (request, response, next) => {
   try {
     if (!(await requireAdminUser(request, response))) return

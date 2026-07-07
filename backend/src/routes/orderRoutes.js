@@ -28,6 +28,22 @@ async function requireAdminUser(request, response) {
   return false
 }
 
+function sellerOwnsOrder(order, sellerId) {
+  return (order.items || []).some((item) => item.sellerId === sellerId)
+}
+
+function sellerOwnsReturnRequest(order, sellerId) {
+  const returnItems = order.returnRequest?.items || []
+  if (returnItems.length === 0) return sellerOwnsOrder(order, sellerId)
+
+  return returnItems.every((returnItem) => {
+    if (returnItem.sellerId) return returnItem.sellerId === sellerId
+
+    const orderItem = (order.items || [])[Number(returnItem.itemIndex)]
+    return orderItem?.sellerId === sellerId
+  })
+}
+
 const coupons = {
   NORTHSTAR10: { type: 'percent', value: 10 },
   SAVE20: { type: 'fixed', value: 20, minimum: 100 },
@@ -73,10 +89,30 @@ orderRouter.get('/admin', requireAuth, async (request, response, next) => {
   }
 })
 
+orderRouter.get('/seller', requireAuth, async (request, response, next) => {
+  try {
+    const snapshot = await firestore().collection('orders').get()
+    const orders = snapshot.docs
+      .map((document) => ({ id: document.id, ...document.data() }))
+      .filter((order) => sellerOwnsOrder(order, request.user.uid))
+      .map((order) => ({
+        ...order,
+        items: (order.items || []).filter((item) => item.sellerId === request.user.uid),
+      }))
+      .sort((first, second) => {
+        const firstTime = first.createdAt?.toMillis?.() || 0
+        const secondTime = second.createdAt?.toMillis?.() || 0
+        return secondTime - firstTime
+      })
+
+    return response.json({ orders, statuses: orderStatuses })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 orderRouter.patch('/:orderId/status', requireAuth, async (request, response, next) => {
   try {
-    if (!(await requireAdminUser(request, response))) return
-
     const status = String(request.body.status || '').trim()
     if (!orderStatuses.includes(status)) {
       return response.status(400).json({ message: 'Choose a valid order status.' })
@@ -86,6 +122,10 @@ orderRouter.patch('/:orderId/status', requireAuth, async (request, response, nex
     const snapshot = await orderReference.get()
     if (!snapshot.exists) {
       return response.status(404).json({ message: 'Order not found.' })
+    }
+    const order = snapshot.data()
+    if (!sellerOwnsOrder(order, request.user.uid)) {
+      return response.status(403).json({ message: 'Seller access required for this order.' })
     }
 
     await orderReference.set(
@@ -101,7 +141,7 @@ orderRouter.patch('/:orderId/status', requireAuth, async (request, response, nex
       { merge: true },
     )
 
-    return response.json({ order: { id: snapshot.id, ...snapshot.data(), status } })
+    return response.json({ order: { id: snapshot.id, ...order, status } })
   } catch (error) {
     return next(error)
   }
@@ -162,6 +202,8 @@ orderRouter.post('/:orderId/return', requireAuth, async (request, response, next
         productId: item.productId,
         quantity: Number(item.quantity || 0),
         color: item.color || '',
+        sellerId: item.sellerId || '',
+        sellerItemId: item.sellerItemId || '',
         size: item.size || '',
       }))
 
@@ -202,8 +244,6 @@ orderRouter.post('/:orderId/return', requireAuth, async (request, response, next
 
 orderRouter.patch('/:orderId/return', requireAuth, async (request, response, next) => {
   try {
-    if (!(await requireAdminUser(request, response))) return
-
     const status = String(request.body.status || '').trim()
     const adminNotes = String(request.body.adminNotes || '').trim()
     if (!returnRequestStatuses.includes(status)) {
@@ -224,6 +264,9 @@ orderRouter.patch('/:orderId/return', requireAuth, async (request, response, nex
     const order = snapshot.data()
     if (order.returnRequest?.status !== 'pending_review') {
       return response.status(409).json({ message: 'This order does not have a pending return request.' })
+    }
+    if (!sellerOwnsReturnRequest(order, request.user.uid)) {
+      return response.status(403).json({ message: 'Seller access required for this return request.' })
     }
 
     const reviewedAt = new Date().toISOString()

@@ -3,6 +3,10 @@ import {
   ArrowLeft,
   BadgeDollarSign,
   Boxes,
+  CheckCircle2,
+  Clock3,
+  ExternalLink,
+  Home,
   Image,
   Mail,
   MapPin,
@@ -11,6 +15,8 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Search,
+  ShoppingBag,
   Store,
   Video,
 } from 'lucide-react'
@@ -33,6 +39,12 @@ const statusStyles = {
   cancelled: 'bg-rose-50 text-rose-700',
   returned: 'bg-slate-100 text-slate-700',
 }
+const orderViews = [
+  { id: 'all', label: 'All orders', statuses: [] },
+  { id: 'action', label: 'Needs action', statuses: ['confirmed', 'packing'] },
+  { id: 'shipping', label: 'Shipping', statuses: ['shipped'] },
+  { id: 'closed', label: 'Closed', statuses: ['delivered', 'cancelled', 'returned'] },
+]
 
 function SellerPage() {
   const { authLoading, profile, user } = useAuth()
@@ -56,12 +68,54 @@ function SellerWorkspace({ profile, user }) {
   const [savingOrderId, setSavingOrderId] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [activeOrderView, setActiveOrderView] = useState(orderViews[0].id)
+  const [orderQuery, setOrderQuery] = useState('')
 
   const shopReady = Boolean(shop.name.trim())
   const inventoryValue = useMemo(
     () => items.reduce((total, item) => total + Number(item.price) * Number(item.stock), 0),
     [items],
   )
+  const pendingReturns = useMemo(
+    () => orders.filter((order) => order.returnRequest?.status === 'pending_review').length,
+    [orders],
+  )
+  const activeOrders = useMemo(
+    () => orders.filter((order) => ['confirmed', 'packing', 'shipped'].includes(order.status)).length,
+    [orders],
+  )
+  const orderViewCounts = useMemo(
+    () => orderViews.reduce((counts, view) => {
+      counts[view.id] = view.statuses.length === 0
+        ? orders.length
+        : orders.filter((order) => view.statuses.includes(order.status)).length
+      return counts
+    }, {}),
+    [orders],
+  )
+  const visibleOrders = useMemo(() => {
+    const view = orderViews.find((orderView) => orderView.id === activeOrderView) || orderViews[0]
+    const normalizedQuery = orderQuery.trim().toLowerCase()
+
+    return orders.filter((order) => {
+      const matchesView = view.statuses.length === 0 || view.statuses.includes(order.status)
+      if (!matchesView) return false
+      if (!normalizedQuery) return true
+
+      const delivery = order.delivery || {}
+      const searchable = [
+        order.id,
+        order.customerEmail,
+        delivery.fullName,
+        delivery.email,
+        delivery.phone,
+        delivery.city,
+        ...(order.items || []).map((item) => item.name),
+      ].filter(Boolean).join(' ').toLowerCase()
+
+      return searchable.includes(normalizedQuery)
+    })
+  }, [activeOrderView, orderQuery, orders])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -216,33 +270,51 @@ function SellerWorkspace({ profile, user }) {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="page-container flex items-center py-5">
-          <Link className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-700" to="/account">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="page-container flex flex-wrap items-center gap-3 py-4">
+          <Link className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700" to="/account">
             <ArrowLeft size={17} /> Account
+          </Link>
+          <Link className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700" to="/">
+            <Home size={17} /> Store
           </Link>
           <Link className="ml-auto text-xl font-bold tracking-[-0.06em] text-[#11243e] sm:text-2xl" to="/">NORTHSTAR</Link>
         </div>
       </header>
 
       <div className="page-container py-10 sm:py-14">
-        <div className="flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <p className="text-sm font-semibold text-blue-700">Seller workspace</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.03em] text-[#11243e] sm:text-4xl">
-              {shopReady ? shop.name : `${profile?.userName || profile?.displayName || 'Your'} shop`}
-            </h1>
-            <p className="mt-2 text-sm text-slate-500">{profile?.email}</p>
-            {shop.category && <p className="mt-1 text-sm font-semibold text-emerald-700">{shop.category}</p>}
+        <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[#11243e] text-white shadow-sm">
+          <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <p className="text-sm font-semibold text-blue-100">Seller workspace</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-5xl">
+                {shopReady ? shop.name : `${profile?.userName || profile?.displayName || 'Your'} shop`}
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200">
+                Manage products, fulfill orders, and review return requests from one place.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="rounded-full bg-white/10 px-3 py-1.5 text-white ring-1 ring-white/15">{profile?.email}</span>
+                <span className="rounded-full bg-white/10 px-3 py-1.5 text-white ring-1 ring-white/15">{shop.category || 'Category not set'}</span>
+                <span className="rounded-full bg-white/10 px-3 py-1.5 text-white ring-1 ring-white/15">{shop.city || 'Location not set'}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 lg:justify-end">
+              <Link className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11243e] hover:bg-blue-50" to="/seller/products/new">
+                <PackagePlus size={17} /> Create product
+              </Link>
+              <Link className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10" to="/seller/shop">
+                <ExternalLink size={17} /> View shop
+              </Link>
+            </div>
           </div>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
-            <Store size={17} /> {shopReady ? 'Shop active' : 'Shop draft'}
-          </span>
-        </div>
+        </section>
 
-        <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          <Stat icon={Boxes} label="Items" value={items.length} />
-          <Stat icon={PackagePlus} label="Approved" value={items.filter((item) => item.approvalStatus === 'approved').length} />
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Stat icon={ShoppingBag} label="Total orders" value={orders.length} />
+          <Stat icon={Clock3} label="Active orders" value={activeOrders} />
+          <Stat icon={RotateCcw} label="Returns" tone={pendingReturns > 0 ? 'blue' : 'slate'} value={pendingReturns} />
+          <Stat icon={Boxes} label="Products" value={items.length} />
           <Stat icon={BadgeDollarSign} label="Inventory value" value={`$${inventoryValue.toFixed(2)}`} />
         </div>
 
@@ -251,12 +323,21 @@ function SellerWorkspace({ profile, user }) {
         {error && <p className="mt-6 rounded-2xl bg-rose-50 px-5 py-4 text-sm text-rose-700" role="alert">{error}</p>}
 
         {!workspaceLoading && (
-          <div className="mt-8 grid items-start gap-8 lg:grid-cols-[360px_minmax(0,1fr)]">
-            <section className="rounded-3xl border border-slate-200 bg-white p-6">
-              <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
-                <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-700"><Store size={20} /></span>
-                <h2 className="text-xl font-semibold text-[#11243e]">Shop profile</h2>
-              </div>
+          <div className="mt-8 grid items-start gap-8 xl:grid-cols-[340px_minmax(0,1fr)]">
+            <aside className="space-y-6 xl:sticky xl:top-24">
+              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-5">
+                  <div className="flex items-center gap-3">
+                    <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-700"><Store size={20} /></span>
+                    <div>
+                      <h2 className="font-semibold text-[#11243e]">Shop profile</h2>
+                      <p className="text-xs text-slate-500">{shopReady ? 'Live storefront settings' : 'Finish setup to go live'}</p>
+                    </div>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${shopReady ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                    {shopReady ? 'Active' : 'Draft'}
+                  </span>
+                </div>
               <form className="mt-6 space-y-5" onSubmit={saveShop}>
                 <Field label="Shop name" name="name" onChange={updateShopField} value={shop.name} />
                 <label className="block">
@@ -286,59 +367,77 @@ function SellerWorkspace({ profile, user }) {
                   <Save size={17} /> Save shop
                 </button>
               </form>
-            </section>
+              </section>
 
-            <section className="rounded-3xl border border-slate-200 bg-white p-6">
-              <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
-                <span className="grid size-10 place-items-center rounded-full bg-emerald-50 text-emerald-700"><PackagePlus size={20} /></span>
-                <h2 className="text-xl font-semibold text-[#11243e]">Products</h2>
-              </div>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <Link className="inline-flex items-center justify-center gap-2 rounded-full bg-[#11243e] px-5 py-3 text-sm font-semibold text-white" to="/seller/products/new">
-                  <PackagePlus size={17} /> Create product
-                </Link>
-                <Link className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-[#11243e] hover:border-blue-300 hover:text-blue-700" to="/seller/shop">
-                  <Store size={17} /> View my shop
-                </Link>
-              </div>
-
-              <div className="mt-8 grid gap-4">
-                {items.length === 0 ? (
-                  <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center">
-                    <div>
-                      <PackagePlus className="mx-auto text-slate-400" size={28} />
+              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-[#11243e]">Product health</h2>
+                    <p className="mt-1 text-sm text-slate-500">{items.filter((item) => item.approvalStatus === 'approved').length} approved products</p>
+                  </div>
+                  <span className="grid size-10 place-items-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle2 size={20} /></span>
+                </div>
+                <div className="mt-5 space-y-3">
+                  {items.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+                      <PackagePlus className="mx-auto text-slate-400" size={26} />
                       <h3 className="mt-3 font-semibold text-[#11243e]">No products yet</h3>
                       <Link className="mt-3 inline-flex text-sm font-semibold text-blue-700" to="/seller/products/new">Create your first product</Link>
                     </div>
-                  </div>
-                ) : (
-                  items.map((item) => (
-                    <article className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center" key={item.id}>
+                  ) : (
+                    items.slice(0, 5).map((item) => (
+                    <article className="flex gap-3 rounded-2xl border border-slate-200 p-3" key={item.id}>
                       <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
                         <ItemMediaPreview item={item} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-[#11243e]">{item.name}</h3>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.approvalStatus === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{item.approvalStatus || item.status}</span>
-                        </div>
+                        <h3 className="truncate text-sm font-semibold text-[#11243e]">{item.name}</h3>
                         <p className="mt-1 text-sm text-slate-500">{item.category || 'Uncategorized'} · {item.stock} in stock · {Number(item.sold || 0).toLocaleString()} sold</p>
-                        {item.media?.length > 0 && <p className="mt-1 text-xs font-semibold text-slate-400">{item.media.length} media file{item.media.length === 1 ? '' : 's'}</p>}
-                      </div>
-                      <div className="flex items-center justify-between gap-4 sm:block sm:text-right">
-                        <p className="font-semibold text-[#11243e]">${Number(item.price).toFixed(2)}</p>
-                        <Link className="mt-0 text-sm font-semibold text-blue-700 hover:text-blue-900 sm:mt-2" to={`/seller/products/${item.id}/edit`}>Edit details</Link>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.approvalStatus === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{item.approvalStatus || item.status}</span>
+                          <Link className="text-xs font-semibold text-blue-700 hover:text-blue-900" to={`/seller/products/${item.id}/edit`}>Edit</Link>
+                        </div>
                       </div>
                     </article>
                   ))
                 )}
-              </div>
-            </section>
+                  {items.length > 5 && <Link className="inline-flex text-sm font-semibold text-blue-700 hover:text-blue-900" to="/seller/shop">View all products</Link>}
+                </div>
+              </section>
+            </aside>
 
-            <section className="rounded-3xl border border-slate-200 bg-white p-6">
-              <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
-                <span className="grid size-10 place-items-center rounded-full bg-blue-50 text-blue-700"><Boxes size={20} /></span>
-                <h2 className="text-xl font-semibold text-[#11243e]">Order control</h2>
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-11 place-items-center rounded-full bg-blue-50 text-blue-700"><Boxes size={21} /></span>
+                  <div>
+                    <h2 className="text-xl font-semibold text-[#11243e]">Order control</h2>
+                    <p className="mt-1 text-sm text-slate-500">Update fulfillment status, find customers, and handle returns.</p>
+                  </div>
+                </div>
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                    onChange={(event) => setOrderQuery(event.target.value)}
+                    placeholder="Search orders..."
+                    value={orderQuery}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+                {orderViews.map((view) => (
+                  <button
+                    className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${activeOrderView === view.id ? 'bg-[#11243e] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    key={view.id}
+                    onClick={() => setActiveOrderView(view.id)}
+                    type="button"
+                  >
+                    {view.label}
+                    <span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${activeOrderView === view.id ? 'bg-white/15 text-white' : 'bg-white text-slate-500'}`}>{orderViewCounts[view.id] || 0}</span>
+                  </button>
+                ))}
               </div>
               {orders.length === 0 ? (
                 <div className="mt-6 grid min-h-40 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center">
@@ -347,9 +446,17 @@ function SellerWorkspace({ profile, user }) {
                     <h3 className="mt-3 font-semibold text-[#11243e]">No seller orders yet</h3>
                   </div>
                 </div>
+              ) : visibleOrders.length === 0 ? (
+                <div className="mt-6 grid min-h-40 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center">
+                  <div>
+                    <Search className="mx-auto text-slate-400" size={28} />
+                    <h3 className="mt-3 font-semibold text-[#11243e]">No matching orders</h3>
+                    <p className="mt-1 text-sm text-slate-500">Try another status tab or search keyword.</p>
+                  </div>
+                </div>
               ) : (
                 <div className="mt-6 grid gap-4">
-                  {orders.map((order) => (
+                  {visibleOrders.map((order) => (
                     <SellerOrderCard
                       key={order.id}
                       onReturnReview={reviewReturnRequest}
@@ -520,11 +627,16 @@ function returnStatusStyle(status) {
   }[status] || 'bg-blue-50 text-blue-700'
 }
 
-function Stat({ icon: Icon, label, value }) {
+function Stat({ icon: Icon, label, tone = 'slate', value }) {
+  const toneStyles = {
+    blue: 'bg-blue-50 text-blue-700',
+    slate: 'bg-slate-100 text-slate-600',
+  }
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-3">
-        <span className="grid size-10 place-items-center rounded-full bg-slate-100 text-slate-600"><Icon size={19} /></span>
+        <span className={`grid size-10 place-items-center rounded-full ${toneStyles[tone] || toneStyles.slate}`}><Icon size={19} /></span>
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
           <p className="mt-1 text-xl font-semibold text-[#11243e]">{value}</p>

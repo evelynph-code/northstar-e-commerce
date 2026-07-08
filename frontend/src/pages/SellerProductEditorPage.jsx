@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Image, PackagePlus, Save, Upload, X } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
+import { productCategories } from '../lib/categories.js'
 
 const emptyForm = {
   name: '',
@@ -9,7 +10,9 @@ const emptyForm = {
   price: '',
   stock: '',
   description: '',
+  hasColors: false,
   colors: '',
+  hasSizes: false,
   sizes: '',
   features: '',
   howToUse: '',
@@ -73,7 +76,9 @@ function SellerProductEditorPage() {
           price: String(body.item.price || ''),
           stock: String(body.item.stock || ''),
           description: body.item.description || '',
+          hasColors: Boolean(body.item.colors?.length),
           colors: listToText(body.item.colors),
+          hasSizes: Boolean(body.item.sizes?.length),
           sizes: listToText(body.item.sizes),
           features: listToText(body.item.features),
           howToUse: body.item.howToUse || '',
@@ -94,6 +99,16 @@ function SellerProductEditorPage() {
 
   const updateField = (event) => {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }))
+  }
+
+  const updateToggle = (event) => {
+    const { checked, name } = event.target
+    setForm((current) => ({
+      ...current,
+      [name]: checked,
+      ...(name === 'hasColors' && !checked ? { colors: '' } : {}),
+      ...(name === 'hasSizes' && !checked ? { sizes: '' } : {}),
+    }))
   }
 
   const addMediaFiles = async (event) => {
@@ -120,13 +135,18 @@ function SellerProductEditorPage() {
 
     try {
       const token = await user.getIdToken()
+      const payload = {
+        ...form,
+        colors: form.hasColors ? form.colors : '',
+        sizes: form.hasSizes ? form.sizes : '',
+      }
       const response = await fetch(editing ? `/api/seller/items/${itemId}` : '/api/seller/items', {
         method: editing ? 'PUT' : 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.message || 'Unable to submit product.')
@@ -174,12 +194,44 @@ function SellerProductEditorPage() {
               <h2 className="text-xl font-semibold text-[#11243e]">Customer-facing information</h2>
               <div className="mt-6 grid gap-5 sm:grid-cols-2">
                 <Field label="Item name" name="name" onChange={updateField} value={form.name} />
-                <Field label="Category" name="category" onChange={updateField} value={form.category} />
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">Category</span>
+                  <select
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                    name="category"
+                    onChange={updateField}
+                    required
+                    value={form.category}
+                  >
+                    <option value="">Choose a category</option>
+                    {productCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
                 <Field label="Price" min="0" name="price" onChange={updateField} step="0.01" type="number" value={form.price} />
                 <Field label="Stock" min="0" name="stock" onChange={updateField} step="1" type="number" value={form.stock} />
                 <div className="sm:col-span-2"><TextArea label="Description" name="description" onChange={updateField} value={form.description} /></div>
-                <Field label="Colors" name="colors" onChange={updateField} placeholder="Black, White, Navy" required={false} value={form.colors} />
-                <Field label="Sizes" name="sizes" onChange={updateField} placeholder="S, M, L or 36, 37, 38" required={false} value={form.sizes} />
+                <VariantField
+                  checked={form.hasColors}
+                  helper="Customers will pick one of these before adding the item to cart."
+                  label="Allow customers to choose color"
+                  name="hasColors"
+                  onChange={updateField}
+                  onToggle={updateToggle}
+                  placeholder="Black, White, Navy"
+                  value={form.colors}
+                  valueName="colors"
+                />
+                <VariantField
+                  checked={form.hasSizes}
+                  helper="Use clothing sizes, shoe sizes, storage sizes, or any option that fits this item."
+                  label="Allow customers to choose size"
+                  name="hasSizes"
+                  onChange={updateField}
+                  onToggle={updateToggle}
+                  placeholder="S, M, L or 36, 37, 38"
+                  value={form.sizes}
+                  valueName="sizes"
+                />
                 <div className="sm:col-span-2"><TextArea label="Features" name="features" onChange={updateField} placeholder="One feature per line" value={form.features} /></div>
                 <div className="sm:col-span-2"><TextArea label="How it is used" name="howToUse" onChange={updateField} value={form.howToUse} /></div>
                 <div className="sm:col-span-2"><TextArea label="Washing and care" name="careInstructions" onChange={updateField} value={form.careInstructions} /></div>
@@ -226,6 +278,40 @@ function SellerProductEditorPage() {
 
 function Field({ label, type = 'text', ...props }) {
   return <label className="block"><span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span><input className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50" required type={type} {...props} /></label>
+}
+
+function VariantField({ checked, helper, label, name, onChange, onToggle, placeholder, value, valueName }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          checked={checked}
+          className="mt-1 size-4 rounded border-slate-300 accent-blue-700"
+          name={name}
+          onChange={onToggle}
+          type="checkbox"
+        />
+        <span>
+          <span className="block text-sm font-semibold text-[#11243e]">{label}</span>
+          <span className="mt-1 block text-xs leading-5 text-slate-500">{helper}</span>
+        </span>
+      </label>
+      {checked && (
+        <label className="mt-4 block">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Choices</span>
+          <input
+            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+            name={valueName}
+            onChange={onChange}
+            placeholder={placeholder}
+            required
+            value={value}
+          />
+          <span className="mt-2 block text-xs text-slate-400">Separate choices with commas or new lines.</span>
+        </label>
+      )}
+    </div>
+  )
 }
 
 function TextArea({ label, ...props }) {

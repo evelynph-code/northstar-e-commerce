@@ -24,6 +24,48 @@ const fallbackGallery = [
   { start: '#e2e8f0', end: '#bfdbfe' },
   { start: '#eff6ff', end: '#cbd5e1' },
 ]
+const namedColorHex = {
+  beige: '#d6c6a8',
+  black: '#111827',
+  blue: '#2563eb',
+  brown: '#92400e',
+  cream: '#f5f5dc',
+  gray: '#94a3b8',
+  green: '#16a34a',
+  grey: '#94a3b8',
+  navy: '#1e3a8a',
+  orange: '#f97316',
+  pink: '#ec4899',
+  purple: '#7c3aed',
+  red: '#dc2626',
+  silver: '#cbd5e1',
+  white: '#ffffff',
+  yellow: '#eab308',
+}
+
+function colorNameToHex(name) {
+  return namedColorHex[String(name || '').trim().toLowerCase()] || '#e2e8f0'
+}
+
+function normalizeColorOptions(colors = []) {
+  return colors
+    .map((color) => {
+      if (typeof color === 'string') return { name: color, hex: colorNameToHex(color) }
+      const name = String(color?.name || '').trim()
+      return {
+        name,
+        hex: color?.hex && color.hex !== '#e2e8f0' ? color.hex : colorNameToHex(name),
+      }
+    })
+    .filter((color) => color.name)
+}
+
+function normalizeSizeOptions(sizes = []) {
+  return sizes
+    .map((size) => (typeof size === 'string' ? size : size?.name || size?.label || size?.value || ''))
+    .map((size) => String(size).trim())
+    .filter(Boolean)
+}
 
 function RatingStars({ rating }) {
   return (
@@ -108,8 +150,8 @@ function ProductDetailPage() {
         const reviewsBody = reviewsResponse.ok ? await reviewsResponse.json() : { reviews: [] }
         setProduct(productBody.product)
         setCustomerReviews(reviewsBody.reviews)
-        setSelectedColor(productBody.product.colors?.[0]?.name || '')
-        setSelectedSize(productBody.product.sizes?.[0] || '')
+        setSelectedColor(normalizeColorOptions(productBody.product.colors)[0]?.name || '')
+        setSelectedSize(normalizeSizeOptions(productBody.product.sizes)[0] || '')
       } catch (caughtError) {
         if (caughtError.name !== 'AbortError') setError(caughtError.message)
       } finally {
@@ -161,6 +203,8 @@ function ProductDetailPage() {
     () => product?.media?.length ? product.media : product?.galleryColors?.length ? product.galleryColors : fallbackGallery,
     [product],
   )
+  const colorOptions = useMemo(() => normalizeColorOptions(product?.colors), [product])
+  const sizeOptions = useMemo(() => normalizeSizeOptions(product?.sizes), [product])
 
   const addToCart = async () => {
     if (!product || product.stock === 0) return
@@ -285,11 +329,11 @@ function ProductDetailPage() {
           </div>
           <p className="mt-6 max-w-full break-words leading-7 text-slate-600">{product.description || `A thoughtfully selected ${product.category.toLowerCase()} essential, designed for reliable everyday use and a clean modern feel.`}</p>
 
-          {!product.media?.length && product.colors?.length > 0 && (
+          {colorOptions.length > 0 && (
             <fieldset className="mt-8">
               <legend className="font-semibold text-[#11243e]">Color: <span className="font-normal text-slate-500">{selectedColor}</span></legend>
               <div className="mt-3 flex flex-wrap gap-3">
-                {product.colors.map((color) => (
+                {colorOptions.map((color) => (
                   <button aria-label={`Select ${color.name}`} className={`grid size-10 place-items-center rounded-full border-2 p-1 ${selectedColor === color.name ? 'border-blue-600' : 'border-slate-200'}`} key={color.name} onClick={() => setSelectedColor(color.name)} type="button">
                     <span className="grid size-full place-items-center rounded-full" style={{ backgroundColor: color.hex }}>
                       {selectedColor === color.name && <Check className={color.hex === '#ffffff' ? 'text-slate-800' : 'text-white'} size={15} />}
@@ -300,11 +344,11 @@ function ProductDetailPage() {
             </fieldset>
           )}
 
-          {product.sizes?.length > 0 && (
+          {sizeOptions.length > 0 && (
             <fieldset className="mt-8">
-              <legend className="font-semibold text-[#11243e]">Size</legend>
+              <legend className="font-semibold text-[#11243e]">Size: <span className="font-normal text-slate-500">{selectedSize}</span></legend>
               <div className="mt-3 flex flex-wrap gap-2">
-                {product.sizes.map((size) => (
+                {sizeOptions.map((size) => (
                   <button className={`min-w-12 rounded-xl border px-4 py-2.5 text-sm font-semibold ${selectedSize === size ? 'border-[#11243e] bg-[#11243e] text-white' : 'border-slate-200 text-slate-600'}`} key={size} onClick={() => setSelectedSize(size)} type="button">{size}</button>
                 ))}
               </div>
@@ -380,11 +424,11 @@ function ProductDetailPage() {
             ))}
             <div className="min-h-32 border-b border-slate-200 p-6 sm:border-r lg:p-7">
               <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Available colors</dt>
-              <dd className="mt-3 text-lg font-semibold text-[#11243e]">{product.colors?.map((color) => color.name).join(', ') || 'Standard'}</dd>
+              <dd className="mt-3 text-lg font-semibold text-[#11243e]">{colorOptions.map((color) => color.name).join(', ') || 'Standard'}</dd>
             </div>
             <div className="min-h-32 border-b border-slate-200 p-6 sm:border-r lg:p-7">
-              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{product.sizes?.length > 0 ? 'Available sizes' : 'Product category'}</dt>
-              <dd className="mt-3 text-lg font-semibold text-[#11243e]">{product.sizes?.length > 0 ? product.sizes.join(', ') : product.category}</dd>
+              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{sizeOptions.length > 0 ? 'Available sizes' : 'Product category'}</dt>
+              <dd className="mt-3 text-lg font-semibold text-[#11243e]">{sizeOptions.length > 0 ? sizeOptions.join(', ') : product.category}</dd>
             </div>
           </dl>
         </div>

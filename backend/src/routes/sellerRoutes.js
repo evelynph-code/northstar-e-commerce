@@ -1,14 +1,11 @@
-import { mkdir, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
 import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
 import { isAdminEmail } from '../config/adminAccess.js'
-import { firestore } from '../config/firebase.js'
+import { firestore, storageBucket } from '../config/firebase.js'
 import { requireAuth } from '../middleware/requireAuth.js'
 
 const sellerRouter = Router()
-const uploadsRoot = path.join(process.cwd(), 'uploads')
 const mediaTypeByMime = {
   'image/gif': { extension: 'gif', type: 'image' },
   'image/jpeg': { extension: 'jpg', type: 'image' },
@@ -95,23 +92,37 @@ function normalizeProductPayload(body) {
 }
 
 async function saveMediaFiles(uid, itemId, files = []) {
-  const mediaDirectory = path.join(uploadsRoot, 'sellers', uid, itemId)
-  await mkdir(mediaDirectory, { recursive: true })
-
   const savedFiles = []
   for (const file of files) {
     const parsed = parseDataUrl(file.url)
     if (!parsed) continue
 
     const id = randomUUID()
-    const filename = `${id}.${parsed.extension}`
-    await writeFile(path.join(mediaDirectory, filename), parsed.buffer)
+    const safeName = String(file.name || `media.${parsed.extension}`).replace(/[^\w.-]+/g, '-').slice(0, 120)
+    const storagePath = `sellers/${uid}/items/${itemId}/${id}-${safeName}`
+    const token = randomUUID()
+    const storageFile = storageBucket().file(storagePath)
+
+    await storageFile.save(parsed.buffer, {
+      contentType: parsed.mimeType,
+      metadata: {
+        metadata: {
+          firebaseStorageDownloadTokens: token,
+        },
+      },
+      resumable: false,
+    })
+
+    const bucketName = storageBucket().name
+    const url = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`
+
     savedFiles.push({
       id,
-      name: String(file.name || filename).slice(0, 160),
+      name: String(file.name || safeName).slice(0, 160),
       type: parsed.type,
       mimeType: parsed.mimeType,
-      url: `/uploads/sellers/${uid}/${itemId}/${filename}`,
+      storagePath,
+      url,
     })
   }
 
@@ -120,12 +131,13 @@ async function saveMediaFiles(uid, itemId, files = []) {
 
 async function normalizeMedia(uid, itemId, files = []) {
   const existingFiles = files
-    .filter((file) => typeof file.url === 'string' && file.url.startsWith('/uploads/'))
+    .filter((file) => typeof file.url === 'string' && !file.url.startsWith('data:'))
     .map((file) => ({
       id: String(file.id || randomUUID()),
       name: String(file.name || 'Media').slice(0, 160),
       type: file.type === 'video' ? 'video' : 'image',
       mimeType: String(file.mimeType || ''),
+      storagePath: file.storagePath ? String(file.storagePath) : undefined,
       url: file.url,
     }))
   const newFiles = await saveMediaFiles(
@@ -135,6 +147,18 @@ async function normalizeMedia(uid, itemId, files = []) {
   )
 
   return [...existingFiles, ...newFiles]
+}
+
+async function deleteStorageMedia(files = []) {
+  const storagePaths = files
+    .map((file) => file?.storagePath)
+    .filter(Boolean)
+
+  await Promise.all(
+    [...new Set(storagePaths)].map((storagePath) =>
+      storageBucket().file(storagePath).delete({ ignoreNotFound: true }),
+    ),
+  )
 }
 
 sellerRouter.get('/workspace', requireAuth, async (request, response, next) => {
@@ -273,6 +297,10 @@ sellerRouter.put('/items/:itemId', requireAuth, async (request, response, next) 
     }
 
     const media = await normalizeMedia(request.user.uid, request.params.itemId, request.body.media)
+    const keptStoragePaths = new Set(media.map((file) => file.storagePath).filter(Boolean))
+    const removedMedia = (snapshot.data().media || []).filter(
+      (file) => file.storagePath && !keptStoragePaths.has(file.storagePath),
+    )
     const updates = {
       ...productFields,
       media,
@@ -281,8 +309,50 @@ sellerRouter.put('/items/:itemId', requireAuth, async (request, response, next) 
       updatedAt: FieldValue.serverTimestamp(),
     }
 
-    await reference.set(updates, { merge: true })
+    await Promise.all([
+      reference.set(updates, { merge: true }),
+      deleteStorageMedia(removedMedia),
+    ])
     return response.json({ item: { id: snapshot.id, ...snapshot.data(), ...updates, updatedAt: null } })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+sellerRouter.delete('/items/:itemId', requireAuth, async (request, response, next) => {
+  try {
+    const database = firestore()
+    const reference = itemReference(request.user.uid, request.params.itemId)
+    const snapshot = await reference.get()
+
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Item not found.' })
+    }
+
+    const item = snapshot.data()
+    const productReferences = []
+
+    if (item.productId) {
+      productReferences.push(database.collection('products').doc(item.productId))
+    }
+
+    if (item.productId !== request.params.itemId) {
+      productReferences.push(database.collection('products').doc(request.params.itemId))
+    }
+
+    const uniqueProductReferences = [...new Map(productReferences.map((productReference) => [productReference.path, productReference])).values()]
+    const productSnapshots = await Promise.all(uniqueProductReferences.map((productReference) => productReference.get()))
+    const ownedProductReferences = productSnapshots
+      .filter((productSnapshot) => productSnapshot.exists && productSnapshot.data()?.sellerId === request.user.uid)
+      .map((productSnapshot) => productSnapshot.ref)
+
+    await Promise.all([
+      reference.delete(),
+      ...ownedProductReferences.map((productReference) => productReference.delete()),
+      deleteStorageMedia(item.media || []),
+    ])
+
+    return response.json({ itemId: request.params.itemId })
   } catch (error) {
     return next(error)
   }
@@ -452,6 +522,50 @@ sellerRouter.patch('/admin/items/:sellerId/:itemId/approve', requireAuth, async 
         approvalStatus: 'approved',
         status: 'approved',
         productId: productReference.id,
+      },
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+sellerRouter.patch('/admin/items/:sellerId/:itemId/decline', requireAuth, async (request, response, next) => {
+  try {
+    if (!(await requireAdminUser(request, response))) return
+
+    const reference = itemReference(request.params.sellerId, request.params.itemId)
+    const snapshot = await reference.get()
+
+    if (!snapshot.exists) {
+      return response.status(404).json({ message: 'Seller item not found.' })
+    }
+
+    const item = snapshot.data()
+    const reviewNotes = String(request.body.reviewNotes || '').trim()
+
+    await reference.set(
+      {
+        approvalStatus: 'declined',
+        status: 'declined',
+        reviewNotes,
+        reviewedAt: FieldValue.serverTimestamp(),
+        reviewedBy: request.user.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    )
+
+    if (item.productId) {
+      await firestore().collection('products').doc(item.productId).delete()
+    }
+
+    return response.json({
+      item: {
+        id: snapshot.id,
+        ...item,
+        approvalStatus: 'declined',
+        status: 'declined',
+        reviewNotes,
       },
     })
   } catch (error) {

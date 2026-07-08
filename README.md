@@ -39,9 +39,11 @@ supplied only to the backend container through `backend/.env`.
 1. Create a Firebase project and a Web app in the Firebase console.
 2. Enable **Authentication → Sign-in method → Email/Password**.
 3. Create a Firestore database.
-4. Copy `frontend/.env.example` to `frontend/.env` and add the Web app config.
-5. In **Project settings → Service accounts**, generate a private key.
-6. Copy `backend/.env.example` to `backend/.env` and add the service-account values.
+4. Enable **Storage** in the Firebase console for seller product media.
+5. Copy `frontend/.env.example` to `frontend/.env` and add the Web app config.
+6. In **Project settings → Service accounts**, generate a private key.
+7. Copy `backend/.env.example` to `backend/.env` and add the service-account values.
+8. Set `FIREBASE_STORAGE_BUCKET` in `backend/.env` to your Storage bucket name, for example `your-project-id.appspot.com` or the bucket shown in **Storage → Files**.
 
 Keep the private key in `backend/.env`; never expose it through a `VITE_` variable.
 

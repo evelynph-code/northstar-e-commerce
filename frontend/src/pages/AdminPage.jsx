@@ -3,10 +3,12 @@ import {
   ArrowLeft,
   BadgeDollarSign,
   Boxes,
+  CheckCircle2,
   PackageCheck,
   Search,
   Store,
   X,
+  XCircle,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
@@ -16,10 +18,13 @@ const orderStatuses = ['confirmed', 'packing', 'shipped', 'delivered', 'cancelle
 function AdminPage() {
   const { authLoading, profile, user } = useAuth()
   const [shops, setShops] = useState([])
+  const [reviewItems, setReviewItems] = useState([])
   const [selectedShopId, setSelectedShopId] = useState('')
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [reviewingItemId, setReviewingItemId] = useState('')
 
   const filteredShops = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -35,7 +40,6 @@ function AdminPage() {
     )
   }, [searchQuery, shops])
   const selectedShop = shops.find((shop) => shop.id === selectedShopId) || filteredShops[0] || null
-  const totalOrders = shops.reduce((sum, shop) => sum + Number(shop.stats?.orders || 0), 0)
   const totalProducts = shops.reduce((sum, shop) => sum + Number(shop.stats?.products || 0), 0)
   const totalRevenue = shops.reduce((sum, shop) => sum + Number(shop.stats?.revenue || 0), 0)
 
@@ -49,14 +53,23 @@ function AdminPage() {
 
       try {
         const token = await user.getIdToken()
-        const response = await fetch('/api/seller/admin/shops', {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        })
+        const [response, reviewResponse] = await Promise.all([
+          fetch('/api/seller/admin/shops', {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }),
+          fetch('/api/seller/admin/items', {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }),
+        ])
         const body = await response.json().catch(() => ({}))
+        const reviewBody = await reviewResponse.json().catch(() => ({}))
         if (!response.ok) throw new Error(body.message || 'Unable to load shops.')
+        if (!reviewResponse.ok) throw new Error(reviewBody.message || 'Unable to load product reviews.')
 
         setShops(body.shops || [])
+        setReviewItems(reviewBody.items || [])
         setSelectedShopId((current) => current || body.shops?.[0]?.id || '')
       } catch (caughtError) {
         if (caughtError.name !== 'AbortError') setError(caughtError.message)
@@ -68,6 +81,51 @@ function AdminPage() {
     loadShops()
     return () => controller.abort()
   }, [profile?.isAdmin, user])
+
+  const reviewProduct = async (item, decision, reviewNotes = '') => {
+    if (decision === 'decline' && !reviewNotes.trim()) {
+      setError('Add a reason before declining a product.')
+      return
+    }
+
+    setReviewingItemId(item.id)
+    setError('')
+    setMessage('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/seller/admin/items/${item.sellerId}/${item.id}/${decision === 'approve' ? 'approve' : 'decline'}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reviewNotes }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || `Unable to ${decision} this product.`)
+
+      setReviewItems((current) => current.filter((reviewItem) => reviewItem.id !== item.id))
+      setShops((current) =>
+        current.map((shop) => {
+          if (shop.id !== item.sellerId) return shop
+          return {
+            ...shop,
+            products: (shop.products || []).map((product) =>
+              product.id === item.id
+                ? { ...product, approvalStatus: decision === 'approve' ? 'approved' : 'declined', status: decision === 'approve' ? 'approved' : 'declined' }
+                : product,
+            ),
+          }
+        }),
+      )
+      setMessage(decision === 'approve' ? 'Product approved and published.' : 'Product declined.')
+    } catch (caughtError) {
+      setError(caughtError.message)
+    } finally {
+      setReviewingItemId('')
+    }
+  }
 
   if (authLoading) {
     return <main className="grid min-h-screen place-items-center bg-slate-50"><span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" /></main>
@@ -101,11 +159,50 @@ function AdminPage() {
 
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
           <Stat icon={Store} label="Shops" value={shops.length} />
-          <Stat icon={Boxes} label="Orders received" value={totalOrders} />
+          <Stat icon={PackageCheck} label="Pending reviews" value={reviewItems.length} />
           <Stat icon={BadgeDollarSign} label="Seller revenue" value={`$${totalRevenue.toFixed(2)}`} />
         </div>
 
+        {message && <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700" role="status">{message}</p>}
         {error && <p className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700" role="alert">{error}</p>}
+
+        <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
+            <div>
+              <p className="text-sm font-semibold text-blue-700">Product review queue</p>
+              <h2 className="mt-1 text-2xl font-semibold text-[#11243e]">Approve seller submissions</h2>
+              <p className="mt-1 text-sm text-slate-500">Products stay hidden from customers until an admin approves them.</p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
+              {reviewItems.length} pending
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="grid min-h-32 place-items-center">
+              <span className="size-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" />
+            </div>
+          ) : reviewItems.length === 0 ? (
+            <div className="mt-5 grid min-h-36 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center">
+              <div>
+                <PackageCheck className="mx-auto text-slate-400" size={30} />
+                <h3 className="mt-3 font-semibold text-[#11243e]">No products waiting for review</h3>
+                <p className="mt-1 text-sm text-slate-500">New seller submissions will appear here.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4">
+              {reviewItems.map((item) => (
+                <ProductReviewCard
+                  item={item}
+                  key={`${item.sellerId}-${item.id}`}
+                  onReview={reviewProduct}
+                  saving={reviewingItemId === item.id}
+                />
+              ))}
+            </div>
+          )}
+        </section>
 
         <label className="relative mt-8 block max-w-xl">
           <span className="sr-only">Search shops</span>
@@ -229,6 +326,85 @@ function ShopStats({ shop }) {
         )}
       </div>
     </section>
+  )
+}
+
+function ProductReviewCard({ item, onReview, saving }) {
+  const [declineOpen, setDeclineOpen] = useState(false)
+  const [reviewNotes, setReviewNotes] = useState('')
+  const image = item.media?.find((media) => media.type !== 'video')?.url || item.imageUrl
+  const mediaCount = item.media?.length || 0
+
+  return (
+    <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="grid gap-4 lg:grid-cols-[96px_minmax(0,1fr)_auto] lg:items-start">
+        <div className="grid size-24 place-items-center overflow-hidden rounded-2xl bg-white text-slate-400 ring-1 ring-slate-200">
+          {image ? <img alt="" className="size-full object-cover" src={image} /> : <PackageCheck size={28} />}
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-semibold text-[#11243e]">{item.name}</h3>
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending review</span>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            {item.shop?.name || 'Seller shop'} · {item.category || item.shop?.category || 'Uncategorized'}
+          </p>
+          {item.description && <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{item.description}</p>}
+          <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
+            <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">${Number(item.price || 0).toFixed(2)}</span>
+            <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{Number(item.stock || 0)} in stock</span>
+            <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{mediaCount} media file{mediaCount === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <button
+            className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+            disabled={saving}
+            onClick={() => onReview(item, 'approve')}
+            type="button"
+          >
+            <CheckCircle2 size={16} /> Approve
+          </button>
+          <button
+            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50 disabled:opacity-60"
+            disabled={saving}
+            onClick={() => setDeclineOpen((open) => !open)}
+            type="button"
+          >
+            <XCircle size={16} /> Decline
+          </button>
+        </div>
+      </div>
+
+      {declineOpen && (
+        <div className="mt-4 rounded-2xl border border-rose-100 bg-white p-4">
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">Decline reason</span>
+            <textarea
+              className="min-h-24 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-50"
+              onChange={(event) => setReviewNotes(event.target.value)}
+              placeholder="Example: missing product photos, unclear description, unsupported item, etc."
+              value={reviewNotes}
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <button className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100" disabled={saving} onClick={() => setDeclineOpen(false)} type="button">
+              Cancel
+            </button>
+            <button
+              className="rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-60"
+              disabled={saving || !reviewNotes.trim()}
+              onClick={() => onReview(item, 'decline', reviewNotes)}
+              type="button"
+            >
+              Confirm decline
+            </button>
+          </div>
+        </div>
+      )}
+    </article>
   )
 }
 

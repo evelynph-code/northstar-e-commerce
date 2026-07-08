@@ -18,10 +18,12 @@ import {
   Search,
   ShoppingBag,
   Store,
+  Trash2,
   Video,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
+import { productCategories } from '../lib/categories.js'
 import { inventorySocket } from '../lib/socket.js'
 
 const emptyShop = {
@@ -30,7 +32,6 @@ const emptyShop = {
   description: '',
   city: '',
 }
-const sellerCategories = ['Apparel', 'Accessories', 'Footwear', 'Home goods', 'Electronics', 'Beauty']
 const statusStyles = {
   confirmed: 'bg-blue-50 text-blue-700',
   packing: 'bg-amber-50 text-amber-700',
@@ -66,6 +67,7 @@ function SellerWorkspace({ profile, user }) {
   const [workspaceLoading, setWorkspaceLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingOrderId, setSavingOrderId] = useState('')
+  const [deletingItemId, setDeletingItemId] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [activeOrderView, setActiveOrderView] = useState(orderViews[0].id)
@@ -268,6 +270,32 @@ function SellerWorkspace({ profile, user }) {
     }
   }
 
+  const deleteProduct = async (item) => {
+    const confirmed = window.confirm(`Delete "${item.name}"? This removes it from your seller workspace${item.productId ? ' and the customer product page' : ''}.`)
+    if (!confirmed) return
+
+    setDeletingItemId(item.id)
+    setError('')
+    setMessage('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/seller/items/${item.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to delete this product.')
+
+      setItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+      setMessage('Product deleted.')
+    } catch (caughtError) {
+      setError(caughtError.message)
+    } finally {
+      setDeletingItemId('')
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -350,7 +378,7 @@ function SellerWorkspace({ profile, user }) {
                     value={shop.category}
                   >
                     <option value="">Choose a category</option>
-                    {sellerCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                    {productCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </label>
                 <Field label="City / Province" name="city" onChange={updateShopField} value={shop.city} />
@@ -372,7 +400,7 @@ function SellerWorkspace({ profile, user }) {
               <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold text-[#11243e]">Product health</h2>
+                    <h2 className="font-semibold text-[#11243e]">Product Details</h2>
                     <p className="mt-1 text-sm text-slate-500">{items.filter((item) => item.approvalStatus === 'approved').length} approved products</p>
                   </div>
                   <span className="grid size-10 place-items-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle2 size={20} /></span>
@@ -385,21 +413,35 @@ function SellerWorkspace({ profile, user }) {
                       <Link className="mt-3 inline-flex text-sm font-semibold text-blue-700" to="/seller/products/new">Create your first product</Link>
                     </div>
                   ) : (
-                    items.slice(0, 5).map((item) => (
+                    items.slice(0, 5).map((item) => {
+                      const productTarget = item.productId ? `/products/${item.productId}` : `/seller/products/${item.id}/edit`
+                      return (
                     <article className="flex gap-3 rounded-2xl border border-slate-200 p-3" key={item.id}>
-                      <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
+                      <Link className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400" to={productTarget}>
                         <ItemMediaPreview item={item} />
-                      </div>
+                      </Link>
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate text-sm font-semibold text-[#11243e]">{item.name}</h3>
+                        <Link className="block truncate text-sm font-semibold text-[#11243e] hover:text-blue-700" to={productTarget}>{item.name}</Link>
                         <p className="mt-1 text-sm text-slate-500">{item.category || 'Uncategorized'} · {item.stock} in stock · {Number(item.sold || 0).toLocaleString()} sold</p>
                         <div className="mt-2 flex items-center justify-between gap-3">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.approvalStatus === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{item.approvalStatus || item.status}</span>
-                          <Link className="text-xs font-semibold text-blue-700 hover:text-blue-900" to={`/seller/products/${item.id}/edit`}>Edit</Link>
+                          <div className="flex items-center gap-2">
+                            <Link className="text-xs font-semibold text-blue-700 hover:text-blue-900" to={`/seller/products/${item.id}/edit`}>Edit</Link>
+                            <button
+                              aria-label={`Delete ${item.name}`}
+                              className="text-rose-600 hover:text-rose-800 disabled:opacity-50"
+                              disabled={deletingItemId === item.id}
+                              onClick={() => deleteProduct(item)}
+                              type="button"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </article>
-                  ))
+                      )
+                    })
                 )}
                   {items.length > 5 && <Link className="inline-flex text-sm font-semibold text-blue-700 hover:text-blue-900" to="/seller/shop">View all products</Link>}
                 </div>

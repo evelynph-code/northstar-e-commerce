@@ -17,10 +17,10 @@ import {
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { useCart } from '../context/useCart.js'
+import { productCategories } from '../lib/categories.js'
 import { inventorySocket } from '../lib/socket.js'
 
 const productsPerPage = 12
-const sellerCategoryFallbacks = ['Apparel', 'Accessories', 'Footwear', 'Home goods', 'Electronics', 'Beauty']
 
 function formatSold(value) {
   if (value < 1000) return value.toString()
@@ -256,7 +256,7 @@ function App() {
 
   const sellerCategoryOptions = categoryOptions.length > 0
     ? categoryOptions.map(({ name }) => name)
-    : sellerCategoryFallbacks
+    : productCategories
 
   const filteredProducts = useMemo(
     () => {

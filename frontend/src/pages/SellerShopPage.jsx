@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Image, PackagePlus, Store, Video } from 'lucide-react'
+import { ArrowLeft, Image, PackagePlus, Store, Trash2, Video } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import { inventorySocket } from '../lib/socket.js'
@@ -11,7 +11,9 @@ function SellerShopPage() {
   const [shop, setShop] = useState(emptyShop)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  const [deletingItemId, setDeletingItemId] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
     if (!user) return
@@ -58,6 +60,32 @@ function SellerShopPage() {
     inventorySocket.on('product:stock', handleStockUpdate)
     return () => inventorySocket.off('product:stock', handleStockUpdate)
   }, [])
+
+  const deleteProduct = async (item) => {
+    const confirmed = window.confirm(`Delete "${item.name}"? This removes it from your shop permanently and can't be undone' : ''}.`)
+    if (!confirmed) return
+
+    setDeletingItemId(item.id)
+    setError('')
+    setMessage('')
+
+    try {
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/seller/items/${item.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.message || 'Unable to delete this product.')
+
+      setItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+      setMessage('Product deleted.')
+    } catch (caughtError) {
+      setError(caughtError.message)
+    } finally {
+      setDeletingItemId('')
+    }
+  }
 
   if (authLoading) {
     return <main className="grid min-h-screen place-items-center bg-slate-50"><span className="size-10 animate-spin rounded-full border-2 border-slate-200 border-t-blue-700" /></main>
@@ -106,6 +134,8 @@ function SellerShopPage() {
                   <Store size={17} /> {items.length} items
                 </span>
               </div>
+              {message && <p className="mt-5 rounded-2xl bg-emerald-50 px-5 py-4 text-sm text-emerald-700" role="status">{message}</p>}
+              {error && <p className="mt-5 rounded-2xl bg-rose-50 px-5 py-4 text-sm text-rose-700" role="alert">{error}</p>}
 
               {items.length === 0 ? (
                 <div className="mt-6 grid min-h-64 place-items-center rounded-3xl border border-dashed border-slate-300 bg-white text-center">
@@ -117,27 +147,38 @@ function SellerShopPage() {
                 </div>
               ) : (
                 <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                  {items.map((item) => (
+                  {items.map((item) => {
+                    const productTarget = item.productId ? `/products/${item.productId}` : `/seller/products/${item.id}/edit`
+                    return (
                     <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white" key={item.id}>
-                      <div className="aspect-[4/3] bg-slate-100">
+                      <Link className="block aspect-[4/3] bg-slate-100" to={productTarget}>
                         <ProductMedia item={item} />
-                      </div>
+                      </Link>
                       <div className="p-5">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">{item.category || shop.category}</p>
-                            <h3 className="mt-1 font-semibold text-[#11243e]">{item.name}</h3>
+                            <Link className="mt-1 block font-semibold text-[#11243e] hover:text-blue-700" to={productTarget}>{item.name}</Link>
                           </div>
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.approvalStatus === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{item.approvalStatus || 'draft'}</span>
                         </div>
                         <p className="mt-3 text-sm text-slate-500">{item.stock} in stock · {Number(item.sold || 0).toLocaleString()} sold · ${Number(item.price).toFixed(2)}</p>
-                        <div className="mt-5 flex flex-wrap gap-3">
+                        <div className="mt-5 flex flex-wrap items-center gap-3">
                           <Link className="text-sm font-semibold text-blue-700 hover:text-blue-900" to={`/seller/products/${item.id}/edit`}>Edit details</Link>
                           {item.productId && <Link className="text-sm font-semibold text-slate-600 hover:text-blue-700" to={`/products/${item.productId}`}>Customer view</Link>}
+                          <button
+                            className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                            disabled={deletingItemId === item.id}
+                            onClick={() => deleteProduct(item)}
+                            type="button"
+                          >
+                            <Trash2 size={15} /> {deletingItemId === item.id ? 'Deleting...' : 'Delete'}
+                          </button>
                         </div>
                       </div>
                     </article>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </section>

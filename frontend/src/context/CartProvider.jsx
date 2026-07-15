@@ -67,15 +67,23 @@ export function CartProvider({ children }) {
     const size = options.size || product.sizes?.[0] || ''
     const quantity = Math.max(1, Number(options.quantity) || 1)
     const lineId = getLineId(product.id, color, size)
-    const existingItem = items.find((item) => item.lineId === lineId)
-    const availableQuantity = Math.max(0, product.stock - (existingItem?.quantity || 0))
+    const purchaseLimit = Math.max(0, Number(product.purchaseLimit) || 0)
+    const productQuantityInCart = items
+      .filter((item) => item.productId === product.id)
+      .reduce((sum, item) => sum + item.quantity, 0)
+    const maxAvailable = purchaseLimit > 0
+      ? Math.min(product.stock, purchaseLimit)
+      : product.stock
+    const availableQuantity = Math.max(0, maxAvailable - productQuantityInCart)
     const requestedQuantity = Math.min(
       quantity,
       availableQuantity,
     )
 
     if (requestedQuantity === 0) {
-      throw new Error('No more stock is available for this item.')
+      throw new Error(purchaseLimit > 0 && productQuantityInCart >= purchaseLimit
+        ? `This item is limited to ${purchaseLimit} per account.`
+        : 'No more stock is available for this item.')
     }
 
     setItems((current) => {
@@ -88,6 +96,7 @@ export function CartProvider({ children }) {
                 ...item,
                 quantity: item.quantity + requestedQuantity,
                 stock: product.stock,
+                purchaseLimit,
               }
             : item,
         )
@@ -103,6 +112,7 @@ export function CartProvider({ children }) {
           price: product.price,
           originalPrice: product.originalPrice || null,
           stock: product.stock,
+          purchaseLimit,
           color,
           size,
           galleryColors: product.galleryColors || [],
@@ -128,7 +138,14 @@ export function CartProvider({ children }) {
     const item = items.find((candidate) => candidate.lineId === lineId)
     if (!item) return
 
-    const nextQuantity = Math.max(1, Math.min(quantity, item.stock))
+    const purchaseLimit = Math.max(0, Number(item.purchaseLimit) || 0)
+    const otherProductQuantity = items
+      .filter((candidate) => candidate.productId === item.productId && candidate.lineId !== lineId)
+      .reduce((sum, candidate) => sum + candidate.quantity, 0)
+    const maxQuantity = purchaseLimit > 0
+      ? Math.min(item.stock, Math.max(1, purchaseLimit - otherProductQuantity))
+      : item.stock
+    const nextQuantity = Math.max(1, Math.min(quantity, maxQuantity))
     if (nextQuantity === item.quantity) return
 
     setItems((current) =>
@@ -165,11 +182,13 @@ export function CartProvider({ children }) {
         }
 
         const stock = Math.max(0, Number(product.stock) || 0)
-        const quantity = Math.min(item.quantity, stock)
-        if (stock !== item.stock || quantity !== item.quantity) adjusted = true
+        const purchaseLimit = Math.max(0, Number(product.purchaseLimit) || 0)
+        const maxQuantity = purchaseLimit > 0 ? Math.min(stock, purchaseLimit) : stock
+        const quantity = Math.min(item.quantity, maxQuantity)
+        if (stock !== item.stock || purchaseLimit !== (Number(item.purchaseLimit) || 0) || quantity !== item.quantity) adjusted = true
         if (quantity === 0) return null
 
-        return { ...item, stock, quantity }
+        return { ...item, purchaseLimit, stock, quantity }
       })
       .filter(Boolean)
 

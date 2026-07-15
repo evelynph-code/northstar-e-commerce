@@ -75,6 +75,9 @@ function parseSpecifications(value) {
 function normalizeProductPayload(body) {
   const stock = Number(body.stock)
   const price = Number(body.price)
+  const purchaseLimit = body.purchaseLimit === '' || body.purchaseLimit === null || body.purchaseLimit === undefined
+    ? 0
+    : Number(body.purchaseLimit)
 
   return {
     name: String(body.name || '').trim(),
@@ -82,6 +85,7 @@ function normalizeProductPayload(body) {
     description: String(body.description || '').trim(),
     price,
     stock,
+    purchaseLimit,
     colors: parseList(body.colors).map((name) => ({ name, hex: '#e2e8f0' })),
     sizes: parseList(body.sizes),
     features: parseList(body.features),
@@ -245,8 +249,8 @@ sellerRouter.post('/items', requireAuth, async (request, response, next) => {
     const itemId = randomUUID()
     const productFields = normalizeProductPayload(request.body)
 
-    if (!productFields.name || !Number.isFinite(productFields.price) || !Number.isInteger(productFields.stock)) {
-      return response.status(400).json({ message: 'Item name, price, and stock are required.' })
+    if (!productFields.name || !Number.isFinite(productFields.price) || !Number.isInteger(productFields.stock) || !Number.isInteger(productFields.purchaseLimit) || productFields.purchaseLimit < 0) {
+      return response.status(400).json({ message: 'Item name, price, stock, and buying limit are required.' })
     }
 
     const media = await normalizeMedia(request.user.uid, itemId, request.body.media)
@@ -292,8 +296,8 @@ sellerRouter.put('/items/:itemId', requireAuth, async (request, response, next) 
     }
 
     const productFields = normalizeProductPayload(request.body)
-    if (!productFields.name || !Number.isFinite(productFields.price) || !Number.isInteger(productFields.stock)) {
-      return response.status(400).json({ message: 'Item name, price, and stock are required.' })
+    if (!productFields.name || !Number.isFinite(productFields.price) || !Number.isInteger(productFields.stock) || !Number.isInteger(productFields.purchaseLimit) || productFields.purchaseLimit < 0) {
+      return response.status(400).json({ message: 'Item name, price, stock, and buying limit are required.' })
     }
 
     const media = await normalizeMedia(request.user.uid, request.params.itemId, request.body.media)
@@ -481,6 +485,7 @@ sellerRouter.patch('/admin/items/:sellerId/:itemId/approve', requireAuth, async 
       description: item.description || '',
       price: Number(item.price),
       stock: Number(item.stock),
+      purchaseLimit: Number(item.purchaseLimit) || 0,
       media: item.media || [],
       colors: item.colors || [],
       sizes: item.sizes || [],

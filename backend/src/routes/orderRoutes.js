@@ -50,6 +50,22 @@ const coupons = {
   FREESHIP: { type: 'shipping' },
 }
 
+const limitCountedOrderStatuses = ['confirmed', 'packing', 'shipped', 'delivered']
+
+function countPurchasedItemsByProduct(orders = []) {
+  return orders.reduce((counts, order) => {
+    if (!limitCountedOrderStatuses.includes(order.status)) return counts
+
+    ;(order.items || []).forEach((item) => {
+      const productId = item.productId
+      if (!productId) return
+      counts[productId] = (counts[productId] || 0) + (Number(item.quantity) || 0)
+    })
+
+    return counts
+  }, {})
+}
+
 orderRouter.get('/', requireAuth, async (request, response, next) => {
   try {
     const snapshot = await firestore()
@@ -589,6 +605,12 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
       const snapshots = await Promise.all(
         references.map(({ productReference }) => transaction.get(productReference)),
       )
+      const previousOrdersSnapshot = await transaction.get(
+        database.collection('orders').where('userId', '==', request.user.uid),
+      )
+      const previousPurchasedByProduct = countPurchasedItemsByProduct(
+        previousOrdersSnapshot.docs.map((document) => document.data()),
+      )
 
       const orderProducts = []
       const stockUpdates = []
@@ -605,8 +627,21 @@ orderRouter.post('/', requireAuth, async (request, response, next) => {
         const product = productSnapshot.data()
         const currentStock = Number(product.stock) || 0
         const currentSold = Number(product.sold) || 0
+        const purchaseLimit = Number(product.purchaseLimit) || 0
+        const alreadyPurchased = previousPurchasedByProduct[reference.productId] || 0
         const nextStock = currentStock - requestedQuantity
         const nextSold = currentSold + requestedQuantity
+
+        if (purchaseLimit > 0 && alreadyPurchased + requestedQuantity > purchaseLimit) {
+          const remainingLimit = Math.max(0, purchaseLimit - alreadyPurchased)
+          const error = new Error(
+            remainingLimit === 0
+              ? `${product.name} is limited to ${purchaseLimit} per account.`
+              : `${product.name} is limited to ${purchaseLimit} per account. You can buy ${remainingLimit} more.`,
+          )
+          error.status = 409
+          throw error
+        }
 
         if (nextStock < 0) {
           const error = new Error(`Only ${currentStock} ${product.name} item${currentStock === 1 ? '' : 's'} remaining.`)

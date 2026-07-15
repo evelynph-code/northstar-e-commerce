@@ -422,7 +422,10 @@ function SellerWorkspace({ profile, user }) {
                       </Link>
                       <div className="min-w-0 flex-1">
                         <Link className="block truncate text-sm font-semibold text-[#11243e] hover:text-blue-700" to={productTarget}>{item.name}</Link>
-                        <p className="mt-1 text-sm text-slate-500">{item.category || 'Uncategorized'} · {item.stock} in stock · {Number(item.sold || 0).toLocaleString()} sold</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {item.category || 'Uncategorized'} · {item.stock} in stock · {Number(item.sold || 0).toLocaleString()} sold
+                          {Number(item.purchaseLimit) > 0 ? ` · Limit ${item.purchaseLimit} per account` : ''}
+                        </p>
                         <div className="mt-2 flex items-center justify-between gap-3">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.approvalStatus === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{item.approvalStatus || item.status}</span>
                           <div className="flex items-center gap-2">

@@ -9,6 +9,7 @@ const emptyForm = {
   category: '',
   price: '',
   stock: '',
+  purchaseLimit: '',
   description: '',
   hasColors: false,
   colors: '',
@@ -75,6 +76,7 @@ function SellerProductEditorPage() {
           category: body.item.category || '',
           price: String(body.item.price || ''),
           stock: String(body.item.stock || ''),
+          purchaseLimit: body.item.purchaseLimit ? String(body.item.purchaseLimit) : '',
           description: body.item.description || '',
           hasColors: Boolean(body.item.colors?.length),
           colors: listToText(body.item.colors),
@@ -209,6 +211,7 @@ function SellerProductEditorPage() {
                 </label>
                 <Field label="Price" min="0" name="price" onChange={updateField} step="0.01" type="number" value={form.price} />
                 <Field label="Stock" min="0" name="stock" onChange={updateField} step="1" type="number" value={form.stock} />
+                <Field label="Buying limit per account" min="0" name="purchaseLimit" onChange={updateField} placeholder="No limit" required={false} step="1" type="number" value={form.purchaseLimit} />
                 <div className="sm:col-span-2"><TextArea label="Description" name="description" onChange={updateField} value={form.description} /></div>
                 <VariantField
                   checked={form.hasColors}

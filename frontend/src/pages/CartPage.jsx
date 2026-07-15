@@ -111,6 +111,17 @@ function CartPage() {
     setCouponMessage('')
   }
 
+  const getLineMaximumQuantity = (item) => {
+    const purchaseLimit = Math.max(0, Number(item.purchaseLimit) || 0)
+    if (purchaseLimit === 0) return item.stock
+
+    const otherProductQuantity = items
+      .filter((candidate) => candidate.productId === item.productId && candidate.lineId !== item.lineId)
+      .reduce((sum, candidate) => sum + candidate.quantity, 0)
+
+    return Math.min(item.stock, Math.max(1, purchaseLimit - otherProductQuantity))
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <div className="bg-[#11243e] px-6 py-2.5 text-center text-xs font-medium tracking-wide text-slate-200">
@@ -202,7 +213,7 @@ function CartPage() {
                           <button
                             aria-label={`Increase ${item.name} quantity`}
                             className="grid size-10 place-items-center text-slate-600 disabled:opacity-30"
-                            disabled={item.quantity >= item.stock}
+                            disabled={item.quantity >= getLineMaximumQuantity(item)}
                             onClick={() => updateQuantity(item.lineId, item.quantity + 1)}
                             type="button"
                           >
@@ -220,6 +231,9 @@ function CartPage() {
 
                       {item.stock <= 5 && (
                         <p className="mt-3 text-xs font-semibold text-rose-700">Only {item.stock} available</p>
+                      )}
+                      {Number(item.purchaseLimit) > 0 && (
+                        <p className="mt-3 text-xs font-semibold text-slate-500">Limit {item.purchaseLimit} per account</p>
                       )}
                     </div>
                   </article>

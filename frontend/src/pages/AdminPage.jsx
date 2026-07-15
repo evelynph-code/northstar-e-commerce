@@ -354,6 +354,7 @@ function ProductReviewCard({ item, onReview, saving }) {
           <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
             <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">${Number(item.price || 0).toFixed(2)}</span>
             <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{Number(item.stock || 0)} in stock</span>
+            {Number(item.purchaseLimit) > 0 && <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">Limit {item.purchaseLimit} per account</span>}
             <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{mediaCount} media file{mediaCount === 1 ? '' : 's'}</span>
           </div>
         </div>

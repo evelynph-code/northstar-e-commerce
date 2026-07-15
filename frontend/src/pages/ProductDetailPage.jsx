@@ -124,7 +124,7 @@ function ProductMedia({ media, fallbackColors, name }) {
 function ProductDetailPage() {
   const { productId } = useParams()
   const { authLoading, profile, user } = useAuth()
-  const { addItem, itemCount } = useCart()
+  const { addItem, itemCount, items } = useCart()
   const [product, setProduct] = useState(null)
   const [customerReviews, setCustomerReviews] = useState([])
   const [loading, setLoading] = useState(true)
@@ -134,6 +134,7 @@ function ProductDetailPage() {
   const [selectedSize, setSelectedSize] = useState('')
   const [quantity, setQuantity] = useState(1)
   const [added, setAdded] = useState(false)
+  const [cartError, setCartError] = useState('')
   const [liveViewers, setLiveViewers] = useState(1)
 
   useEffect(() => {
@@ -205,19 +206,33 @@ function ProductDetailPage() {
   )
   const colorOptions = useMemo(() => normalizeColorOptions(product?.colors), [product])
   const sizeOptions = useMemo(() => normalizeSizeOptions(product?.sizes), [product])
+  const productQuantityInCart = useMemo(
+    () => items
+      .filter((item) => item.productId === productId)
+      .reduce((sum, item) => sum + item.quantity, 0),
+    [items, productId],
+  )
+  const purchaseLimit = Math.max(0, Number(product?.purchaseLimit) || 0)
+  const remainingAccountLimit = purchaseLimit > 0
+    ? Math.max(0, purchaseLimit - productQuantityInCart)
+    : Infinity
+  const purchasableQuantity = product
+    ? Math.max(0, Math.min(Number(product.stock) || 0, remainingAccountLimit))
+    : 0
 
   const addToCart = async () => {
-    if (!product || product.stock === 0) return
+    if (!product || purchasableQuantity === 0) return
     try {
+      setCartError('')
       await addItem(product, {
         color: selectedColor,
         size: selectedSize,
-        quantity,
+        quantity: Math.min(quantity, maximumQuantity),
       })
       setAdded(true)
       window.setTimeout(() => setAdded(false), 1800)
-    } catch (error) {
-      console.error(error)
+    } catch (caughtError) {
+      setCartError(caughtError.message)
     }
   }
 
@@ -236,7 +251,7 @@ function ProductDetailPage() {
     )
   }
 
-  const maximumQuantity = Math.min(product.stock, 10)
+  const maximumQuantity = Math.max(1, Math.min(purchasableQuantity, 10))
   const ratingDistribution = createRatingDistribution(product.rating, product.reviews)
 
   return (
@@ -364,14 +379,16 @@ function ProductDetailPage() {
                 <button aria-label="Increase quantity" className="grid size-11 place-items-center text-slate-600 disabled:opacity-30" disabled={quantity >= maximumQuantity} onClick={() => setQuantity((value) => value + 1)} type="button"><Plus size={17} /></button>
               </div>
               {product.stock === 0 ? <span className="text-sm font-semibold text-slate-500">Out of stock</span> : product.stock <= 5 ? <span className="text-sm font-semibold text-rose-700">Only {product.stock} left!</span> : <span className="text-sm font-semibold text-emerald-700">In stock</span>}
+              {purchaseLimit > 0 && <span className="text-sm font-semibold text-slate-500">Limit {purchaseLimit} per account</span>}
             </div>
           </div>
 
           <div className="mt-8">
-            <button className="flex w-full items-center justify-center gap-2 rounded-full bg-[#11243e] px-6 py-4 font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500" disabled={product.stock === 0} onClick={addToCart} type="button">
+            <button className="flex w-full items-center justify-center gap-2 rounded-full bg-[#11243e] px-6 py-4 font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500" disabled={purchasableQuantity === 0} onClick={addToCart} type="button">
               {added ? <Check size={19} /> : <ShoppingCart size={19} />}
-              {product.stock === 0 ? 'Out of stock' : added ? `Added ${quantity} to cart` : 'Add to cart'}
+              {product.stock === 0 ? 'Out of stock' : purchasableQuantity === 0 ? 'Limit reached' : added ? `Added ${Math.min(quantity, maximumQuantity)} to cart` : 'Add to cart'}
             </button>
+            {cartError && <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">{cartError}</p>}
           </div>
 
           <div className="mt-8 divide-y divide-slate-200 rounded-2xl border border-slate-200 px-5">

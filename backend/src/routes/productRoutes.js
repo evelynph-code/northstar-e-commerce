@@ -20,19 +20,47 @@ productRouter.get('/', async (_request, response, next) => {
 
 productRouter.get('/:productId/reviews', async (request, response, next) => {
   try {
-    const snapshot = await firestore()
+    const reviewsReference = firestore()
       .collection('products')
       .doc(request.params.productId)
       .collection('reviews')
-      .orderBy('createdAt', 'desc')
-      .limit(10)
-      .get()
+
+    const [latestSnapshot, allReviewsSnapshot] = await Promise.all([
+      reviewsReference
+        .orderBy('createdAt', 'desc')
+        .limit(10)
+        .get(),
+      reviewsReference.get(),
+    ])
+
+    const ratingCounts = allReviewsSnapshot.docs.reduce(
+      (counts, document) => {
+        const rating = Number(document.data().rating)
+        if (Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+          counts[rating] += 1
+        }
+        return counts
+      },
+      { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    )
+    const totalReviews = Object.values(ratingCounts).reduce((sum, count) => sum + count, 0)
+    const totalRating = Object.entries(ratingCounts).reduce(
+      (sum, [rating, count]) => sum + (Number(rating) * count),
+      0,
+    )
 
     return response.json({
-      reviews: snapshot.docs.map((document) => ({
+      averageRating: totalReviews > 0 ? Number((totalRating / totalReviews).toFixed(2)) : 0,
+      ratingDistribution: [5, 4, 3, 2, 1].map((stars) => ({
+        count: ratingCounts[stars],
+        percentage: totalReviews > 0 ? Math.round((ratingCounts[stars] / totalReviews) * 100) : 0,
+        stars,
+      })),
+      reviews: latestSnapshot.docs.map((document) => ({
         id: document.id,
         ...document.data(),
       })),
+      totalReviews,
     })
   } catch (error) {
     return next(error)

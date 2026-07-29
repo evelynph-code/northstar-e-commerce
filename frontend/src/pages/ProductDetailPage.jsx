@@ -127,6 +127,7 @@ function ProductDetailPage() {
   const { addItem, itemCount, items } = useCart()
   const [product, setProduct] = useState(null)
   const [customerReviews, setCustomerReviews] = useState([])
+  const [reviewSummary, setReviewSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedImage, setSelectedImage] = useState(0)
@@ -151,6 +152,11 @@ function ProductDetailPage() {
         const reviewsBody = reviewsResponse.ok ? await reviewsResponse.json() : { reviews: [] }
         setProduct(productBody.product)
         setCustomerReviews(reviewsBody.reviews)
+        setReviewSummary({
+          averageRating: reviewsBody.averageRating,
+          ratingDistribution: reviewsBody.ratingDistribution,
+          totalReviews: reviewsBody.totalReviews,
+        })
         setSelectedColor(normalizeColorOptions(productBody.product.colors)[0]?.name || '')
         setSelectedSize(normalizeSizeOptions(productBody.product.sizes)[0] || '')
       } catch (caughtError) {
@@ -252,7 +258,13 @@ function ProductDetailPage() {
   }
 
   const maximumQuantity = Math.max(1, Math.min(purchasableQuantity, 10))
-  const ratingDistribution = createRatingDistribution(product.rating, product.reviews)
+  const ratingDistribution = createRatingDistribution(reviewSummary?.ratingDistribution, customerReviews)
+  const displayedReviewCount = Number.isFinite(Number(reviewSummary?.totalReviews))
+    ? Number(reviewSummary.totalReviews)
+    : Number(product.reviews) || 0
+  const displayedRating = displayedReviewCount > 0 && Number.isFinite(Number(reviewSummary?.averageRating))
+    ? Number(reviewSummary.averageRating)
+    : Number(product.rating) || 0
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-white text-slate-950">
@@ -323,9 +335,9 @@ function ProductDetailPage() {
             </Link>
           )}
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <RatingStars rating={product.rating} />
-            <span className="font-semibold text-slate-700">{product.rating}</span>
-            <span className="text-sm text-slate-400">({product.reviews} reviews)</span>
+            <RatingStars rating={displayedRating} />
+            <span className="font-semibold text-slate-700">{displayedRating}</span>
+            <span className="text-sm text-slate-400">({displayedReviewCount} reviews)</span>
             <span className="text-sm text-slate-500">{product.sold.toLocaleString()} sold</span>
             {liveViewers > 1 && (
               <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
@@ -458,9 +470,9 @@ function ProductDetailPage() {
 
           <div className="mt-10 grid items-start gap-10 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-16">
             <aside className="rounded-3xl border border-slate-200 bg-slate-50 p-6 lg:sticky lg:top-6">
-              <p className="text-6xl font-semibold tracking-[-0.06em] text-[#11243e]">{product.rating.toFixed(1)}</p>
-              <div className="mt-3"><RatingStars rating={product.rating} /></div>
-              <p className="mt-2 text-sm text-slate-500">Based on {product.reviews.toLocaleString()} reviews</p>
+              <p className="text-6xl font-semibold tracking-[-0.06em] text-[#11243e]">{displayedRating.toFixed(1)}</p>
+              <div className="mt-3"><RatingStars rating={displayedRating} /></div>
+              <p className="mt-2 text-sm text-slate-500">Based on {displayedReviewCount.toLocaleString()} reviews</p>
               <div className="mt-7 space-y-3 border-t border-slate-200 pt-6">
                 {ratingDistribution.map(({ stars, count, percentage }) => (
                   <div className="grid grid-cols-[34px_1fr_38px] items-center gap-3 text-sm" key={stars}>
@@ -509,23 +521,34 @@ function ProductDetailPage() {
   )
 }
 
-function createRatingDistribution(rating, totalReviews) {
-  const fiveStarShare = Math.max(0.2, Math.min(0.82, (rating - 2.5) / 3))
-  const shares = [
-    fiveStarShare,
-    Math.max(0.1, 0.28 - Math.abs(rating - 4.2) * 0.08),
-    Math.max(0.04, 0.14 - Math.abs(rating - 3.4) * 0.04),
-    0.05,
-    0.03,
-  ]
-  const totalShare = shares.reduce((sum, share) => sum + share, 0)
-  const counts = shares.map((share) => Math.floor((share / totalShare) * totalReviews))
-  counts[0] += totalReviews - counts.reduce((sum, count) => sum + count, 0)
+function createRatingDistribution(distribution, reviews = []) {
+  if (Array.isArray(distribution) && distribution.length > 0) {
+    return [5, 4, 3, 2, 1].map((stars) => {
+      const entry = distribution.find((item) => Number(item.stars) === stars)
+      return {
+        stars,
+        count: Number(entry?.count) || 0,
+        percentage: Number(entry?.percentage) || 0,
+      }
+    })
+  }
 
-  return counts.map((count, index) => ({
-    stars: 5 - index,
-    count,
-    percentage: totalReviews > 0 ? Math.round((count / totalReviews) * 100) : 0,
+  const counts = reviews.reduce(
+    (result, review) => {
+      const rating = Number(review.rating)
+      if (Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+        result[rating] += 1
+      }
+      return result
+    },
+    { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+  )
+  const totalReviews = Object.values(counts).reduce((sum, count) => sum + count, 0)
+
+  return [5, 4, 3, 2, 1].map((stars) => ({
+    stars,
+    count: counts[stars],
+    percentage: totalReviews > 0 ? Math.round((counts[stars] / totalReviews) * 100) : 0,
   }))
 }
 
